@@ -42,25 +42,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Bootstrap Gradle wrapper
-        # gradle-wrapper.jar isn't committed (see docs/BUILD.md). Install a
-        # one-shot system Gradle, generate the wrapper jar, then cache it
-        # locally for the rest of the job.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gradle
-          gradle wrapper --gradle-version 8.9
-
+      # gradle-wrapper.jar isn't committed (see docs/BUILD.md), so we use
+      # the system `gradle` that setup-gradle installs on PATH instead of
+      # `./gradlew`.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest
+        run: gradle testDebugUnitTest
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -87,12 +81,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Bootstrap Gradle wrapper
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gradle
-          gradle wrapper --gradle-version 8.9
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -118,7 +106,7 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: gradle assembleRelease
 
       - name: Locate signed APK
         id: apk
