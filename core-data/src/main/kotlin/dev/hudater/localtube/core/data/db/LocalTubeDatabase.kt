@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
         VideoEntity::class,
     ],
     version = 1,
-    exportSchema = true,
+    exportSchema = false,
 )
 abstract class LocalTubeDatabase : RoomDatabase() {
     abstract fun sourceDao(): SourceDao

@@ -69,10 +69,11 @@ class ScanEngine(
             if (unchanged) continue
 
             val channelId = parsed?.channelId
-            if (channelId != null && parsed.channelName != null) {
+            val channelName = parsed?.channelName
+            if (channelId != null && channelName != null) {
                 channelsToUpsert[channelId] = ChannelEntity(
                     id = channelId,
-                    name = parsed.channelName,
+                    name = channelName,
                     thumbnailPath = null, // channel avatar sourcing is a later enhancement — see docs/ARCHITECTURE.md open items
                 )
             }
