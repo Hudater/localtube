@@ -18,6 +18,7 @@ import dev.hudater.localtube.core.model.SourceType
 import dev.hudater.localtube.core.player.LocalTubePlayerFactory
 import dev.hudater.localtube.core.player.SourceResolver
 import dev.hudater.localtube.security.EncryptedSmbCredentialStore
+import kotlinx.coroutines.flow.first
 
 /**
  * Manual dependency container — no Hilt/Dagger, per the project's
@@ -99,7 +100,7 @@ class AppContainer(private val appContext: Context) {
     // --- Player ---
 
     val sourceResolver = SourceResolver { sourceId ->
-        kotlinx.coroutines.flow.first(sourceRepository.observeAllSources()) { it.id == sourceId }
+        sourceRepository.observeAllSources().first { it.id == sourceId }
     }
 
     val playerFactory: LocalTubePlayerFactory by lazy {
@@ -111,7 +112,7 @@ class AppContainer(private val appContext: Context) {
     val imageLoader: coil.ImageLoader by lazy {
         coil.ImageLoader.Builder(appContext)
             .components {
-                add(dev.hudater.localtube.ui.ThumbnailFetcher.Factory(fileSystemsByType, sourceResolver))
+                add(dev.hudater.localtube.ui.ThumbnailFetcher.Factory(appContext, fileSystemsByType, sourceResolver))
             }
             .build()
     }

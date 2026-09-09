@@ -1,5 +1,6 @@
 package dev.hudater.localtube.ui
 
+import android.content.Context
 import android.net.Uri
 import coil.ImageLoader
 import coil.decode.DataSource
@@ -28,6 +29,7 @@ import okio.source
  * matters for sidecar thumbnails read directly off a source.
  */
 class ThumbnailFetcher(
+    private val context: Context,
     private val uri: Uri,
     private val fileSystemsByType: Map<SourceType, SourceFileSystem>,
     private val sourceResolver: SourceResolver,
@@ -44,19 +46,20 @@ class ThumbnailFetcher(
         val bytes = fileSystem.openInputStream(source, relativePath)
 
         return SourceResult(
-            source = ImageSource(bytes.source().buffer(), null),
+            source = ImageSource(bytes.source().buffer(), context),
             mimeType = null,
             dataSource = DataSource.NETWORK,
         )
     }
 
     class Factory(
+        private val context: Context,
         private val fileSystemsByType: Map<SourceType, SourceFileSystem>,
         private val sourceResolver: SourceResolver,
     ) : Fetcher.Factory<Uri> {
         override fun create(data: Uri, options: Options, imageLoader: ImageLoader): Fetcher? {
             if (data.scheme != "localtube") return null
-            return ThumbnailFetcher(data, fileSystemsByType, sourceResolver)
+            return ThumbnailFetcher(context, data, fileSystemsByType, sourceResolver)
         }
     }
 }
