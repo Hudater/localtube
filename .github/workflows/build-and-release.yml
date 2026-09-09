@@ -53,6 +53,14 @@ jobs:
       - name: Run unit tests
         run: gradle testDebugUnitTest
 
+      - name: Debug: dump resolved compose versions
+        if: failure()
+        run: |
+          echo "=== material3 ==="
+          gradle :app:dependencies --configuration debugCompileClasspath 2>&1 | grep -E "androidx\.compose\.material" | head -30
+          echo "=== icons ==="
+          gradle :app:dependencies --configuration debugCompileClasspath 2>&1 | grep -E "icons" | head -10
+
       - name: Build debug APK
         run: gradle assembleDebug
 
