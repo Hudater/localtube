@@ -117,8 +117,8 @@ dependencies {
 // DEBUG: dump resolved compose versions
 tasks.register("dumpComposeVersions") {
     doLast {
-        configurations.getByName("debugCompileClasspath").resolvedConfiguration
-            .resolvedDependencies
+        val rc = configurations.getByName("debugCompileClasspath").resolvedConfiguration
+        rc.getFirstLevelModuleDependencies()
             .filter { it.moduleGroup.startsWith("androidx.compose") }
             .sortedBy { "${it.moduleGroup}:${it.moduleName}" }
             .forEach { dep ->
