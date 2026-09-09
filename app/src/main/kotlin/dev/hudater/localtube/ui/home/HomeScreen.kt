@@ -24,9 +24,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,15 +71,27 @@ fun HomeScreen(
             onChannelClick = onChannelClick,
         )
 
-        PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing,
-            onRefresh = viewModel::onRefresh,
+        val pullState = rememberPullToRefreshState()
+        if (pullState.isRefreshing) {
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                viewModel.onRefresh()
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(uiState.isRefreshing) {
+            if (!uiState.isRefreshing) pullState.endRefresh()
+        }
+        Box(
+            modifier = Modifier.nestedScroll(pullState.nestedScrollConnection),
         ) {
             LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(uiState.videos, key = { it.id.value }) { video ->
                     VideoRow(video = video, onClick = { onVideoClick(video) })
                 }
             }
+            PullToRefreshContainer(
+                state = pullState,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
     }
 }
