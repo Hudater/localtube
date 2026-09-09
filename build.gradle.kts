@@ -25,19 +25,18 @@ subprojects {
     configurations.all {
         resolutionStrategy {
             force(
-                "androidx.compose.material3:material3:1.3.0",
-                "androidx.compose.material:material-icons-extended:1.7.5",
+                "androidx.compose.material3:material3:1.2.1",
+                "androidx.compose.material:material-icons-extended:1.5.4",
+                "androidx.compose.material:material-icons-core:1.5.4",
+                "androidx.compose.ui:ui:1.5.4",
+                "androidx.compose.ui:ui-graphics:1.5.4",
+                "androidx.compose.ui:ui-tooling:1.5.4",
+                "androidx.compose.ui:ui-tooling-preview:1.5.4",
+                "androidx.compose.foundation:foundation:1.5.4",
+                "androidx.compose.foundation:foundation-layout:1.5.4",
+                "androidx.compose.runtime:runtime:1.5.4",
+                "androidx.compose.material:material-ripple:1.5.4",
             )
-            eachDependency {
-                if (requested.group == "androidx.compose.material3" && requested.name == "material3") {
-                    useVersion("1.3.0")
-                    because("Force material3 1.3.0 for PullToRefreshContainer/PullToRefreshBox")
-                }
-                if (requested.group == "androidx.compose.material" && requested.name == "material-icons-extended") {
-                    useVersion("1.7.5")
-                    because("Force icons-extended 1.7.5 for ArrowBack")
-                }
-            }
         }
     }
 }
