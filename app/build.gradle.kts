@@ -73,6 +73,14 @@ dependencies {
     implementation(project(":core-data"))
     implementation(project(":core-player"))
 
+    // Explicit version overrides: the BOM platform() import is being
+    // shadowed by transitives from activity-compose/lifecycle/navigation
+    // and resolutionStrategy.force isn't winning. Direct versions on
+    // these two artifacts sidestep the conflict entirely.
+    implementation("androidx.compose.material3:material3:1.3.0")
+    implementation("androidx.compose.material:material-icons-extended:1.7.5")
+    implementation("androidx.compose.material:material-icons-core:1.7.5")
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
