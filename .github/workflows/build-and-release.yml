@@ -53,14 +53,6 @@ jobs:
       - name: Run unit tests
         run: gradle testDebugUnitTest
 
-      - name: Debug: dump resolved material3 + icons-extended versions
-        if: always()
-        run: |
-          echo "=== material3 ==="
-          gradle :app:dependencies --configuration debugRuntimeClasspath 2>&1 | grep -E "(material3|icons-extended|compose-bom)" | head -50
-          echo "=== full app deps ==="
-          gradle :app:dependencies --configuration debugCompileClasspath 2>&1 | tail -200
-
       - name: Build debug APK
         run: gradle assembleDebug
 
