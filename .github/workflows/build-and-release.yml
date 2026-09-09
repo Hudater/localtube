@@ -50,11 +50,11 @@ jobs:
         with:
           gradle-version: 8.9
 
-      - name: Run unit tests
-        run: gradle testDebugUnitTest
-
       - name: Dump resolved compose versions
         run: gradle :app:dumpComposeVersions
+
+      - name: Run unit tests
+        run: gradle testDebugUnitTest
 
       - name: Build debug APK
         run: gradle assembleDebug
