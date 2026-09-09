@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack as ArrowBackIcon
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -46,7 +46,7 @@ fun ChannelScreen(
             navigationIcon = {
                     androidx.compose.material3.IconButton(onClick = onBack) {
                     androidx.compose.material3.Icon(
-                        androidx.compose.material.icons.Icons.Filled.ArrowBack,
+                        Icons.Filled.ArrowBack,
                         contentDescription = "Back",
                     )
                 }
