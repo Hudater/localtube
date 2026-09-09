@@ -77,9 +77,11 @@ dependencies {
     // shadowed by transitives from activity-compose/lifecycle/navigation
     // and resolutionStrategy.force isn't winning. Direct versions on
     // these two artifacts sidestep the conflict entirely.
-    implementation("androidx.compose.material3:material3:1.3.0")
-    implementation("androidx.compose.material:material-icons-extended:1.7.5")
-    implementation("androidx.compose.material:material-icons-core:1.7.5")
+    // Pinned to 1.2.1 / 1.5.4 — the last set that works cleanly with
+    // Kotlin 2.0 K2 compiler; 1.3.0+/1.7.x had metadata format issues.
+    implementation("androidx.compose.material3:material3:1.2.1")
+    implementation("androidx.compose.material:material-icons-extended:1.5.4")
+    implementation("androidx.compose.material:material-icons-core:1.5.4")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
