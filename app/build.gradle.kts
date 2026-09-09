@@ -91,7 +91,12 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
 
     implementation(libs.media3.ui)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.common)
     implementation(libs.coil.compose)
+    implementation(libs.coil)
+    implementation(libs.smbj)
+    implementation(libs.androidx.room.runtime)
 
     implementation(libs.kotlinx.coroutines.android)
 

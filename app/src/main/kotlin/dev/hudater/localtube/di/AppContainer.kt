@@ -99,9 +99,7 @@ class AppContainer(private val appContext: Context) {
     // --- Player ---
 
     val sourceResolver = SourceResolver { sourceId ->
-        sourceRepository.observeAllSources()
-            .let { flow -> kotlinx.coroutines.flow.first(flow) }
-            .firstOrNull { it.id == sourceId }
+        kotlinx.coroutines.flow.first(sourceRepository.observeAllSources()) { it.id == sourceId }
     }
 
     val playerFactory: LocalTubePlayerFactory by lazy {
