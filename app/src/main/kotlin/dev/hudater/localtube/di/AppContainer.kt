@@ -100,7 +100,7 @@ class AppContainer(private val appContext: Context) {
     // --- Player ---
 
     val sourceResolver = SourceResolver { sourceId ->
-        sourceRepository.observeAllSources().first { it.id == sourceId }
+        sourceRepository.observeAllSources().first().firstOrNull { it.id == sourceId }
     }
 
     val playerFactory: LocalTubePlayerFactory by lazy {
