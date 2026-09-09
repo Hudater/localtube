@@ -71,27 +71,15 @@ fun HomeScreen(
             onChannelClick = onChannelClick,
         )
 
-        val pullState = rememberPullToRefreshState()
-        if (pullState.isRefreshing) {
-            androidx.compose.runtime.LaunchedEffect(Unit) {
-                viewModel.onRefresh()
-            }
-        }
-        androidx.compose.runtime.LaunchedEffect(uiState.isRefreshing) {
-            if (!uiState.isRefreshing) pullState.endRefresh()
-        }
-        Box(
-            modifier = Modifier.nestedScroll(pullState.nestedScrollConnection),
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = viewModel::onRefresh,
         ) {
             LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(uiState.videos, key = { it.id.value }) { video ->
                     VideoRow(video = video, onClick = { onVideoClick(video) })
                 }
             }
-            PullToRefreshContainer(
-                state = pullState,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
         }
     }
 }
