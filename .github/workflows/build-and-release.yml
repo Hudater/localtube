@@ -53,6 +53,9 @@ jobs:
       - name: Run unit tests
         run: gradle testDebugUnitTest
 
+      - name: Dump resolved compose versions
+        run: gradle :app:dumpComposeVersions
+
       - name: Build debug APK
         run: gradle assembleDebug
 

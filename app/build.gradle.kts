@@ -73,6 +73,15 @@ dependencies {
     implementation(project(":core-data"))
     implementation(project(":core-player"))
 
+    // DEBUG: print resolved compose versions at configuration time
+    configurations.named("debugCompileClasspath").configure {
+        resolutionStrategy.eachDependency {
+            if (requested.group.startsWith("androidx.compose")) {
+                println("RESOLVED: ${requested.group}:${requested.name} -> ${useTarget.toString()}")
+            }
+        }
+    }
+
     // Explicit version overrides: the BOM platform() import is being
     // shadowed by transitives from activity-compose/lifecycle/navigation
     // and resolutionStrategy.force isn't winning. Direct versions on
@@ -112,4 +121,17 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.espresso.core)
+}
+
+// DEBUG: dump resolved compose versions
+tasks.register("dumpComposeVersions") {
+    doLast {
+        configurations.getByName("debugCompileClasspath").resolvedConfiguration
+            .resolvedDependencies
+            .filter { it.moduleGroup.startsWith("androidx.compose") }
+            .sortedBy { "${it.moduleGroup}:${it.moduleName}" }
+            .forEach { dep ->
+                println("RESOLVED ${dep.moduleGroup}:${dep.moduleName}:${dep.moduleVersion}")
+            }
+    }
 }
