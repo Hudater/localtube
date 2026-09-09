@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- SMB access happens over the local network, not general internet,
+         but Android does not distinguish — both permissions are needed
+         for smbj sockets to work. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- Required for WorkManager's periodic background scan to survive
+         Doze/app-standby restrictions on the schedule the user configures. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Local (LOCAL source type) video files are accessed exclusively
+         via Storage Access Framework tree URIs (see LocalSourceFileSystem)
+         — no broad storage permission is requested. -->
+
+    <application
+        android:name=".LocalTubeApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LocalTube"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.LocalTube">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
