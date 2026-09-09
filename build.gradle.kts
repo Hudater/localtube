@@ -13,3 +13,21 @@ plugins {
 tasks.register("clean", Delete::class) {
     delete(rootProject.layout.buildDirectory)
 }
+
+// Force-upgrade material3 and material-icons-extended over whatever any
+// transitive dependency pulls in. The BOM (composeBom = 2024.09.03) maps
+// material3 to 1.3.0 — anything older and PullToRefreshContainer +
+// PullToRefreshBox are missing. Same logic for icons-extended 1.7.x for
+// Icons.Filled.ArrowBack. Without these constraints, transitives from
+// androidx.activity:activity-compose 1.9.2 and similar down-pin to
+// 1.2.x and break the build.
+subprojects {
+    configurations.all {
+        resolutionStrategy {
+            force(
+                "androidx.compose.material3:material3:1.3.0",
+                "androidx.compose.material:material-icons-extended:1.7.5",
+            )
+        }
+    }
+}

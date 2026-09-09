@@ -44,7 +44,7 @@ fun ChannelScreen(
             navigationIcon = {
                 androidx.compose.material3.IconButton(onClick = onBack) {
                     androidx.compose.material3.Icon(
-                        androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
+                        androidx.compose.material.icons.Icons.Filled.ArrowBack,
                         contentDescription = "Back",
                     )
                 }
