@@ -7,8 +7,10 @@ import dev.hudater.localtube.core.model.Source
 import dev.hudater.localtube.core.model.SourceType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.InputStream
+import java.nio.ByteBuffer
 
 /**
  * [SourceFileSystem] for a [SourceType.LOCAL] source: a folder picked via
@@ -97,19 +99,25 @@ class LocalSourceFileSystem(
     }
 
     private class LocalRandomAccessHandle(
-        private val pfd: android.os.ParcelFileDescriptor,
+        pfd: android.os.ParcelFileDescriptor,
     ) : RandomAccessHandle {
-        private val file = java.io.RandomAccessFile(pfd.fileDescriptor, "r")
+        // RandomAccessFile can't be constructed from a ParcelFileDescriptor
+        // on Android (the (FileDescriptor, String) overload is stubbed out
+        // of android.jar), so use a FileInputStream on the underlying fd
+        // and seek via its channel.
+        private val stream = FileInputStream(pfd.fileDescriptor)
+        private val channel = stream.channel
+        private val pfd = pfd
 
-        override val lengthBytes: Long get() = file.length()
+        override val lengthBytes: Long get() = channel.size()
 
         override fun readAt(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
-            file.seek(position)
-            return file.read(buffer, offset, length)
+            channel.position(position)
+            return channel.read(ByteBuffer.wrap(buffer, offset, length))
         }
 
         override fun close() {
-            file.close()
+            channel.close()
             pfd.close()
         }
     }
