@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.PlayerView
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.playback.PipState
 import dev.hudater.localtube.playback.PlaybackManager
