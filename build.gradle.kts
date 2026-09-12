@@ -15,23 +15,24 @@ tasks.register("clean", Delete::class) {
 }
 
 // Pin the whole Compose dependency graph to one consistent set:
-// material3 1.2.1 + the rest of Compose at 1.6.1. material3 1.2.1 was
-// compiled against compose-ui 1.6.x (its TextStyle.copy signature differs
-// from 1.5.x — pinning ui to 1.5.4 caused a NoSuchMethodError at runtime
-// in TypographyTokens). eachDependency by group covers artifacts a
-// per-artifact force() list would miss.
+// material3 1.3.0 + the rest of Compose at 1.7.5. The Kotlin Compose
+// compiler plugin (2.0.20) generates code for the 1.7.x runtime slot-table
+// format — running app code against an older runtime (1.5.4/1.6.1) crashes
+// at first composition with ComposeRuntimeError "Unexpected anchor value".
+// eachDependency by group covers artifacts a per-artifact force() list
+// would miss.
 subprojects {
     configurations.all {
         resolutionStrategy.eachDependency {
             when {
                 requested.group == "androidx.compose.material3" && requested.name == "material3" ->
-                    useVersion("1.2.1")
+                    useVersion("1.3.0")
                 requested.group == "androidx.compose.ui" ||
                     requested.group == "androidx.compose.foundation" ||
                     requested.group == "androidx.compose.runtime" ||
                     requested.group == "androidx.compose.animation" ||
                     requested.group == "androidx.compose.material" ->
-                    useVersion("1.6.1")
+                    useVersion("1.7.5")
             }
         }
     }
