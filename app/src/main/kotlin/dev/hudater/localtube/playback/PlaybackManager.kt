@@ -172,7 +172,23 @@ class PlaybackManager(
             val future = MediaController.Builder(
                 appContext,
                 SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java)),
-            ).buildAsync()
+            )
+                // onDisconnected can only be registered at build time —
+                // a connected controller's addListener only accepts
+                // Player.Listener.
+                .addListener(
+                    object : MediaController.Listener {
+                        override fun onDisconnected(controller: MediaController) {
+                            if (this@PlaybackManager.controller === controller) {
+                                this@PlaybackManager.controller = null
+                                this@PlaybackManager.controllerFuture = null
+                                _isPlaying.value = false
+                                _state.value = PlaybackState.Idle
+                            }
+                        }
+                    },
+                )
+                .buildAsync()
             controllerFuture = future
             continuation.invokeOnCancellation { future.cancel(false) }
             future.addListener(
@@ -181,21 +197,6 @@ class PlaybackManager(
                         val connected = future.get()
                         controller = connected
                         connected.addListener(playbackListener)
-                        // If the service dies out from under us (system
-                        // kill), fall back to Idle instead of leaving the
-                        // UI polling a dead controller.
-                        connected.addListener(
-                            object : MediaController.Listener {
-                                override fun onDisconnected(controller: MediaController) {
-                                    if (this@PlaybackManager.controller === controller) {
-                                        this@PlaybackManager.controller = null
-                                        this@PlaybackManager.controllerFuture = null
-                                        _isPlaying.value = false
-                                        _state.value = PlaybackState.Idle
-                                    }
-                                }
-                            },
-                        )
                         continuation.resume(connected)
                     } catch (t: Throwable) {
                         if (controllerFuture === future) controllerFuture = null
