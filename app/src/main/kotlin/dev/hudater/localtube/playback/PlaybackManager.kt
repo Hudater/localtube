@@ -173,10 +173,10 @@ class PlaybackManager(
                 appContext,
                 SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java)),
             )
-                // onDisconnected can only be registered at build time —
-                // a connected controller's addListener only accepts
-                // Player.Listener.
-                .addListener(
+                // onDisconnected can only be registered at build time via
+                // setListener — a connected controller's addListener only
+                // accepts Player.Listener.
+                .setListener(
                     object : MediaController.Listener {
                         override fun onDisconnected(controller: MediaController) {
                             if (this@PlaybackManager.controller === controller) {
