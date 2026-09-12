@@ -158,7 +158,11 @@ class MainActivity : ComponentActivity() {
                             val viewModel: PlayerViewModel = viewModel(
                                 factory = PlayerViewModel.Factory(video, container.playerFactory, container.sourceRepository)
                             )
-                            PlayerScreen(viewModel = viewModel, video = video)
+                            PlayerScreen(
+                                viewModel = viewModel,
+                                video = video,
+                                onBack = { navController.popBackStack() },
+                            )
                         }
                     }
 
