@@ -33,7 +33,8 @@ class ScanEngine(
     private val playlistDao: PlaylistDao,
 ) {
 
-    suspend fun scan(source: Source) {
+    /** @return the number of video groups written for this source. */
+    suspend fun scan(source: Source): Int {
         val allFiles = fileSystem.listFiles(source)
         val groups = groupByBaseName(allFiles)
 
@@ -113,6 +114,7 @@ class ScanEngine(
         if (staleIds.isNotEmpty()) {
             videoDao.deleteByIds(staleIds.toList())
         }
+        return videosToUpsert.size
     }
 
     private fun groupByBaseName(files: List<RemoteFileEntry>): List<FileGroup> {

@@ -3,13 +3,14 @@ name: Build and release
 # See docs/BUILD.md for the full build / sign / release contract.
 #
 # Triggers:
-#   - push to main, pull_request to main: build debug APK + run unit tests,
-#     upload the debug APK as a workflow artifact (sideloadable without
-#     cutting a tag).
-#   - push of a tag matching v*: build a signed release APK and attach it
-#     to a GitHub Release.
+#   - push to main, pull_request to main: exactly ONE workflow run per
+#     push. A `meta` job detects whether the pushed commit carries a v*
+#     tag: untagged pushes build a debug APK + run unit tests (uploaded as
+#     an artifact); tagged pushes build the signed release APK and attach
+#     it to a GitHub Release. Tags are NOT a workflow trigger — pushing a
+#     commit and its tag together must not produce two runs.
 #
-# Required secrets (only for the signed-release job on a v* tag):
+# Required secrets (only for the signed-release job on a tagged push):
 #   RELEASE_KEYSTORE_BASE64   base64-encoded release.keystore
 #   RELEASE_KEYSTORE_PASSWORD keystore password
 #   RELEASE_KEY_ALIAS         key alias
@@ -18,19 +19,46 @@ name: Build and release
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write   # needed to create the GitHub Release on a v* tag
+  contents: write   # needed to create the GitHub Release on a tagged push
 
 jobs:
   # ----------------------------------------------------------------------
-  # Debug build + tests on every push/PR.
+  # Detect whether the pushed commit is tagged v* → release vs debug path.
+  # ----------------------------------------------------------------------
+  meta:
+    name: Detect release
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.detect.outputs.release }}
+      tag: ${{ steps.detect.outputs.tag }}
+    steps:
+      - name: Checkout (full history, for tag detection)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect v* tag on HEAD
+        id: detect
+        run: |
+          TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || true)
+          if [[ "$TAG" == v* ]]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ----------------------------------------------------------------------
+  # Debug build + tests on untagged pushes/PRs.
   # ----------------------------------------------------------------------
   debug:
     name: Build debug APK + tests
+    needs: meta
+    if: needs.meta.outputs.release != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -67,12 +95,12 @@ jobs:
           if-no-files-found: error
 
   # ----------------------------------------------------------------------
-  # Signed release + GitHub Release on a v* tag push.
+  # Signed release + GitHub Release on a tagged push.
   # ----------------------------------------------------------------------
   release:
     name: Signed release APK + GitHub Release
-    needs: debug
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: meta
+    if: needs.meta.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -120,6 +148,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          name: ${{ needs.meta.outputs.tag }}
           generate_release_notes: true
           files: ${{ steps.apk.outputs.apk }}

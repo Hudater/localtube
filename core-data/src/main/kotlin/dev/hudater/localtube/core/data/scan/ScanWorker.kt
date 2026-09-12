@@ -1,6 +1,7 @@
 package dev.hudater.localtube.core.data.scan
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dev.hudater.localtube.core.data.repository.SourceRepository
@@ -8,7 +9,7 @@ import kotlinx.coroutines.flow.first
 
 /**
  * Runs [ScanEngine.scan] for every source. Triggered on a periodic
- * schedule and on manual pull-to-refresh (see :app's di/WorkScheduler).
+ * schedule, on manual pull-to-refresh, and right after a source is added.
  *
  * A single source failing (e.g. an unreachable SMB share) does not abort
  * the whole scan — see docs/ARCHITECTURE.md, "SMB source unavailable" —
@@ -23,17 +24,19 @@ class ScanWorker(
 
     override suspend fun doWork(): Result {
         val sources = sourceRepository.observeAllSources().first().filter { !it.hidden }
+        Log.i(TAG, "Scan starting: ${sources.size} source(s)")
 
         var anyFailure = false
         for (source in sources) {
             try {
-                scanEngineFactory(source.type).scan(source)
+                val upserted = scanEngineFactory(source.type).scan(source)
+                Log.i(TAG, "Scanned '${source.label}': $upserted video group(s) written")
             } catch (e: Exception) {
                 anyFailure = true
-                // Intentionally swallowed per-source: one unreachable SMB
-                // share should not block scanning the rest. Surfacing
-                // per-source failure state to the UI is tracked as an
-                // open item in docs/ARCHITECTURE.md.
+                // One unreachable SMB share should not block scanning the
+                // rest, but the failure must be visible — silent zero-row
+                // scans are indistinguishable from an empty folder.
+                Log.e(TAG, "Scan failed for '${source.label}' (${source.type}, ${source.path})", e)
             }
         }
 
@@ -42,5 +45,6 @@ class ScanWorker(
 
     companion object {
         const val UNIQUE_WORK_NAME = "localtube_scan"
+        private const val TAG = "LocalTubeScan"
     }
 }

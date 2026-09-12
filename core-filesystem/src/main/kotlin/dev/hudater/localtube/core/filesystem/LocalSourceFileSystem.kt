@@ -28,7 +28,13 @@ class LocalSourceFileSystem(
             }
             val treeUri = Uri.parse(source.path)
             val root = DocumentFile.fromTreeUri(appContext, treeUri)
-                ?: return@withContext emptyList()
+            if (root == null) {
+                // Empty (not an error) is a trap: a stale or revoked tree
+                // URI must be loud, or a broken source looks like an empty
+                // folder and the scan "succeeds" with zero rows.
+                android.util.Log.w("LocalTubeScan", "Tree URI not accessible for '${source.label}': ${source.path}")
+                return@withContext emptyList()
+            }
 
             buildList {
                 walk(root, relativePrefix = "") { entry -> add(entry) }

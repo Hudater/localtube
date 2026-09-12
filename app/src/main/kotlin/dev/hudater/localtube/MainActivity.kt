@@ -163,7 +163,7 @@ class MainActivity : ComponentActivity() {
 
                     composable("settings") {
                         val viewModel: SettingsViewModel = viewModel(
-                            factory = SettingsViewModel.Factory(container.sourceRepository, container.smbCredentialStore)
+                            factory = SettingsViewModel.Factory(applicationContext, container.sourceRepository, container.smbCredentialStore)
                         )
                         SettingsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                     }

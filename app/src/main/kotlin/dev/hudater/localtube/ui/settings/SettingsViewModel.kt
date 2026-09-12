@@ -1,5 +1,6 @@
 package dev.hudater.localtube.ui.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -9,12 +10,14 @@ import dev.hudater.localtube.core.model.SmbConnectionInfo
 import dev.hudater.localtube.core.model.SourceId
 import dev.hudater.localtube.core.model.SourceType
 import dev.hudater.localtube.security.EncryptedSmbCredentialStore
+import dev.hudater.localtube.work.ScanScheduler
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(
+    private val appContext: Context,
     private val sourceRepository: SourceRepository,
     private val credentialStore: EncryptedSmbCredentialStore,
 ) : ViewModel() {
@@ -33,6 +36,7 @@ class SettingsViewModel(
                     label = label,
                 )
             )
+            ScanScheduler.scanNow(appContext)
         }
     }
 
@@ -63,6 +67,7 @@ class SettingsViewModel(
             if (username != null && password != null) {
                 credentialStore.save(added.id.value, username, password)
             }
+            ScanScheduler.scanNow(appContext)
         }
     }
 
@@ -78,11 +83,12 @@ class SettingsViewModel(
     }
 
     class Factory(
+        private val appContext: Context,
         private val sourceRepository: SourceRepository,
         private val credentialStore: EncryptedSmbCredentialStore,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            SettingsViewModel(sourceRepository, credentialStore) as T
+            SettingsViewModel(appContext, sourceRepository, credentialStore) as T
     }
 }
