@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import dev.hudater.localtube.core.data.scan.ScanWorker
+import dev.hudater.localtube.core.data.scan.ThumbnailFallbackWorker
 import dev.hudater.localtube.di.AppContainer
 
 /**
@@ -28,6 +29,13 @@ class LocalTubeWorkerFactory(
             params = workerParameters,
             sourceRepository = container.sourceRepository,
             scanEngineFactory = { sourceType -> container.scanEngineFor(sourceType) },
+        )
+        ThumbnailFallbackWorker::class.java.name -> ThumbnailFallbackWorker(
+            appContext = appContext,
+            params = workerParameters,
+            sourceRepository = container.sourceRepository,
+            generatorFactory = { sourceType -> container.thumbnailFallbackGeneratorFor(sourceType) },
+            videoDao = container.database.videoDao(),
         )
         else -> null // fall back to WorkManager's default factory for anything else
     }

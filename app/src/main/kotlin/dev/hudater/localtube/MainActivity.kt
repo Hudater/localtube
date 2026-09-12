@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.hudater.localtube.core.model.ChannelId
@@ -20,8 +21,8 @@ import dev.hudater.localtube.ui.channel.ChannelScreen
 import dev.hudater.localtube.ui.channel.ChannelViewModel
 import dev.hudater.localtube.ui.home.HomeScreen
 import dev.hudater.localtube.ui.home.HomeViewModel
+import dev.hudater.localtube.ui.mini.MiniPlayerOverlay
 import dev.hudater.localtube.ui.player.PlayerScreen
-import dev.hudater.localtube.ui.player.PlayerViewModel
 import dev.hudater.localtube.ui.playlist.PlaylistScreen
 import dev.hudater.localtube.ui.playlist.PlaylistViewModel
 import dev.hudater.localtube.ui.settings.SettingsScreen
@@ -42,7 +43,6 @@ class MainActivity : ComponentActivity() {
             LocalTubeTheme {
                 val navController = rememberNavController()
                 val selectionState = remember { SelectionState() }
-
                 // In-memory lookup so the player/channel/playlist screens
                 // don't need Video/Channel/Playlist to be Parcelable — the
                 // Home screen's already-loaded list is reused instead of
@@ -155,11 +155,8 @@ class MainActivity : ComponentActivity() {
                         }
 
                         resolvedVideo?.let { video ->
-                            val viewModel: PlayerViewModel = viewModel(
-                                factory = PlayerViewModel.Factory(video, container.playerFactory, container.sourceRepository)
-                            )
                             PlayerScreen(
-                                viewModel = viewModel,
+                                manager = container.playbackManager,
                                 video = video,
                                 onBack = { navController.popBackStack() },
                             )
@@ -173,6 +170,21 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
                 }
+
+                // Floating mini player: shows whenever a video is playing
+                // and we're not already on the full player screen. Tap to
+                // expand, drag to move, X to close.
+                val backStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = backStackEntry?.destination?.route
+                MiniPlayerOverlay(
+                    manager = container.playbackManager,
+                    hidden = currentRoute?.startsWith("player") == true,
+                    onExpand = {
+                        container.playbackManager.currentVideo?.let { video ->
+                            navController.navigate("player/${video.id.value}")
+                        }
+                    },
+                )
             }
         }
     }

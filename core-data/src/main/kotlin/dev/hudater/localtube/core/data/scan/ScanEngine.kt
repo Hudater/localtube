@@ -60,17 +60,29 @@ class ScanEngine(
                 ?: deriveIdFromPath(source.id.value, videoFile.relativePath)
             seenIds += videoId
 
+            // Display fields: metadata wins; without a sidecar, fall back
+            // to the yt-dlp output filename convention "Author - Title.ext"
+            // so bare download folders still get channels and clean titles.
+            val baseName = titleFromFilename(videoFile.relativePath)
+            val (channelId, channelName, title) = if (parsed != null) {
+                ParsedDisplay(parsed.channelId, parsed.channelName, parsed.title ?: baseName)
+            } else {
+                authorTitleFromFilename(baseName)
+            }
+
             // Skip re-processing files whose size+mtime haven't changed
             // since the last scan — see docs/ARCHITECTURE.md, "Scan
             // diffing strategy", for why this uses size+mtime, not a hash.
+            // Display fields (title/channel) are re-derived cheaply every
+            // scan so heuristic improvements apply to existing rows too.
             val existing = existingFingerprints[videoId]
-            val unchanged = existing != null &&
+            val contentUnchanged = existing != null &&
                 existing.fileSizeBytes == videoFile.sizeBytes &&
                 existing.fileLastModifiedEpochMillis == videoFile.lastModifiedEpochMillis
-            if (unchanged) continue
+            val displayUnchanged = existing != null &&
+                existing.title == title && existing.channelId == channelId
+            if (contentUnchanged && displayUnchanged) continue
 
-            val channelId = parsed?.channelId
-            val channelName = parsed?.channelName
             if (channelId != null && channelName != null) {
                 channelsToUpsert[channelId] = ChannelEntity(
                     id = channelId,
@@ -97,7 +109,7 @@ class ScanEngine(
                 playlistId = playlistId,
                 playlistIndex = parsed?.playlistIndex,
                 filePath = videoFile.relativePath,
-                title = parsed?.title ?: titleFromFilename(videoFile.relativePath),
+                title = title,
                 durationSeconds = parsed?.durationSeconds,
                 thumbnailPath = group.thumbnail?.relativePath,
                 addedAtEpochMillis = existing?.addedAtEpochMillis ?: System.currentTimeMillis(),
@@ -132,6 +144,30 @@ class ScanEngine(
         val name = relativePath.substringAfterLast('/').substringBeforeLast('.')
         return name.replace('_', ' ').trim()
     }
+
+    /**
+     * Splits a yt-dlp style filename "Author - Title" into a stable
+     * channel id, the channel name, and the remaining title. No match →
+     * no channel, whole name as title.
+     */
+    private fun authorTitleFromFilename(baseName: String): ParsedDisplay {
+        val idx = baseName.indexOf(" - ")
+        if (idx <= 0 || idx >= baseName.length - 3) return ParsedDisplay(null, null, baseName)
+        val author = baseName.substring(0, idx).trim()
+        val title = baseName.substring(idx + 3).trim()
+        if (author.isEmpty() || title.isEmpty()) return ParsedDisplay(null, null, baseName)
+        return ParsedDisplay(
+            channelId = "fname:" + author.lowercase().replace(Regex("\\s+"), "-"),
+            channelName = author,
+            title = title,
+        )
+    }
+
+    private data class ParsedDisplay(
+        val channelId: String?,
+        val channelName: String?,
+        val title: String,
+    )
 
     /**
      * Stable fallback ID when no info.json (or no `id` field in it) is

@@ -86,8 +86,14 @@ interface VideoDao {
     @Query("DELETE FROM videos WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
 
-    @Query("SELECT id, fileSizeBytes, fileLastModifiedEpochMillis, addedAtEpochMillis FROM videos WHERE sourceId = :sourceId")
+    @Query("SELECT id, fileSizeBytes, fileLastModifiedEpochMillis, addedAtEpochMillis, title, channelId FROM videos WHERE sourceId = :sourceId")
     suspend fun getKnownFileFingerprints(sourceId: Long): List<VideoFingerprint>
+
+    @Query("SELECT * FROM videos WHERE thumbnailPath IS NULL")
+    suspend fun videosWithoutThumbnail(): List<VideoEntity>
+
+    @Query("UPDATE videos SET thumbnailPath = :path WHERE id = :id")
+    suspend fun updateThumbnailPath(id: String, path: String)
 
     /**
      * Home feed: random order across whichever sources are selected,
@@ -129,4 +135,6 @@ data class VideoFingerprint(
     val fileSizeBytes: Long,
     val fileLastModifiedEpochMillis: Long,
     val addedAtEpochMillis: Long,
+    val title: String,
+    val channelId: String?,
 )

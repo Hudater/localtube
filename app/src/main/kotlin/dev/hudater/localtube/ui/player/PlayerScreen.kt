@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -57,24 +59,32 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.PlayerView
 import dev.hudater.localtube.core.model.Video
+import dev.hudater.localtube.playback.PlaybackManager
+import dev.hudater.localtube.playback.PlaybackState
 import kotlinx.coroutines.delay
 
 /**
  * YouTube-style player: custom Compose overlay (PlayerView's built-in
  * controller is disabled) with tap-to-toggle controls, double-tap side
- * seek, ±10s, scrub bar, and a fullscreen button that rotates to
- * landscape and hides the system bars.
+ * seek, ±10s, scrub bar, playback speed, and a fullscreen button that
+ * rotates to landscape and hides the system bars.
+ *
+ * Backing playback lives in the app-scoped [PlaybackManager], so leaving
+ * this screen (back press) keeps the video running in the floating mini
+ * player — that's what makes picture-in-picture-style browsing possible.
  */
 @Composable
 fun PlayerScreen(
-    viewModel: PlayerViewModel,
+    manager: PlaybackManager,
     video: Video,
     onBack: () -> Unit,
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val playback by manager.state.collectAsState()
     val context = LocalContext.current
     val view = LocalView.current
     val activity = context as? Activity
+
+    LaunchedEffect(video) { manager.open(video) }
 
     var isFullscreen by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -123,7 +133,7 @@ fun PlayerScreen(
     BackHandler(enabled = isFullscreen) { exitFullscreen() }
 
     // Poll playback state for the overlay UI (position, duration, playing).
-    val player = (uiState as? PlayerUiState.Ready)?.player
+    val player = (playback as? PlaybackState.Playing)?.player
     LaunchedEffect(player) {
         while (player != null) {
             positionMs = player.currentPosition.coerceAtLeast(0)
@@ -150,10 +160,10 @@ fun PlayerScreen(
             },
             contentAlignment = Alignment.Center,
         ) {
-            when (val state = uiState) {
-                is PlayerUiState.Loading -> CircularProgressIndicator()
-                is PlayerUiState.Error -> Text(state.message, color = MaterialTheme.colorScheme.error)
-                is PlayerUiState.Ready -> {
+            when (val state = playback) {
+                is PlaybackState.Idle, is PlaybackState.Loading -> CircularProgressIndicator()
+                is PlaybackState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
+                is PlaybackState.Playing -> {
                     AndroidView(
                         factory = { ctx ->
                             PlayerView(ctx).apply {
@@ -201,14 +211,8 @@ fun PlayerScreen(
                                 if (scrubPositionMs >= 0) state.player.seekTo(scrubPositionMs)
                                 scrubPositionMs = -1L
                             },
-                            onPlayPause = {
-                                if (state.player.isPlaying) state.player.pause() else state.player.play()
-                            },
-                            onSeekBy = { delta ->
-                                state.player.seekTo(
-                                    (state.player.currentPosition + delta).coerceAtLeast(0),
-                                )
-                            },
+                            onPlayPause = manager::playPause,
+                            onSeekBy = manager::seekBy,
                             onBack = onBack,
                             onToggleFullscreen = {
                                 if (isFullscreen) exitFullscreen() else enterFullscreen()
@@ -242,7 +246,7 @@ fun PlayerScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     playbackSpeed = speed
-                                    player?.setPlaybackSpeed(speed)
+                                    manager.setPlaybackSpeed(speed)
                                     showSpeedMenu = false
                                 }
                                 .padding(vertical = 6.dp),
@@ -289,7 +293,17 @@ private fun PlayerControls(
     onBack: () -> Unit,
     onToggleFullscreen: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.4f))
+            // Keep controls clear of the status bar / camera cutout and
+            // gesture bar — the gear/back row was unreachable under call
+            // bubbles and the notch otherwise.
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(vertical = 4.dp),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

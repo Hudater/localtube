@@ -3,6 +3,9 @@ package dev.hudater.localtube.core.data.scan
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.hudater.localtube.core.data.repository.SourceRepository
 import kotlinx.coroutines.flow.first
@@ -39,6 +42,14 @@ class ScanWorker(
                 Log.e(TAG, "Scan failed for '${source.label}' (${source.type}, ${source.path})", e)
             }
         }
+
+        // Kick off the thumbnail-enrichment pass regardless of scan
+        // outcome — new videos show title-first, thumbnails arrive after.
+        WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+            ThumbnailFallbackWorker.UNIQUE_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<ThumbnailFallbackWorker>().build(),
+        )
 
         return if (anyFailure) Result.retry() else Result.success()
     }

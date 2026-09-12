@@ -107,6 +107,12 @@ class AppContainer(private val appContext: Context) {
         LocalTubePlayerFactory(appContext, fileSystemsByType, sourceResolver)
     }
 
+    // App-scoped playback so the video keeps playing (mini popup) after
+    // the player screen is popped — see playback/PlaybackManager.
+    val playbackManager: dev.hudater.localtube.playback.PlaybackManager by lazy {
+        dev.hudater.localtube.playback.PlaybackManager(appContext, playerFactory, sourceRepository)
+    }
+
     // --- Images ---
 
     val imageLoader: coil.ImageLoader by lazy {
