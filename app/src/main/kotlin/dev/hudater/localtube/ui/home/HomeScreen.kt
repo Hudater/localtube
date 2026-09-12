@@ -1,9 +1,7 @@
 package dev.hudater.localtube.ui.home
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,7 +46,7 @@ import dev.hudater.localtube.core.model.Channel
 import dev.hudater.localtube.core.model.Source
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.ui.SelectionState
-import dev.hudater.localtube.ui.resolveThumbnailModel
+import dev.hudater.localtube.ui.components.VideoCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,11 +82,20 @@ fun HomeScreen(
 
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(bottom = 16.dp),
+                // ~24dp between rows so cards breathe instead of touching,
+                // matching the YouTube feed's row spacing.
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
             ) {
                 items(uiState.videos, key = { it.id.value }) { video ->
-                    VideoRow(
+                    VideoCard(
                         video = video,
+                        // Feed rows show the channel avatar + name like
+                        // YouTube; a video whose channel isn't in the
+                        // loaded list just renders without the byline.
+                        channel = video.channelId?.let { id ->
+                            uiState.channels.firstOrNull { it.id == id }
+                        },
                         onClick = { onVideoClick(video) },
                         onLongClick = { videoToDelete = video },
                     )
@@ -247,57 +254,5 @@ private fun ChannelAvatar(
             maxLines = 1,
             modifier = Modifier.size(width = 64.dp, height = 16.dp),
         )
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun VideoRow(
-    video: Video,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-    ) {
-        Box {
-            AsyncImage(
-                model = resolveThumbnailModel(video.sourceId, video.thumbnailPath),
-                contentDescription = video.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-            )
-            video.durationSeconds?.let { duration ->
-                Text(
-                    text = formatDuration(duration),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.7f))
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-        Text(
-            text = video.title,
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 2,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        )
-    }
-}
-
-private fun formatDuration(totalSeconds: Long): String {
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%d:%02d".format(minutes, seconds)
     }
 }

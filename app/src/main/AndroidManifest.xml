@@ -13,6 +13,17 @@
          Doze/app-standby restrictions on the schedule the user configures. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Media playback: PlaybackService (MediaSessionService) runs as a
+         foreground mediaPlayback service — the media notification
+         (play/pause from the shade/lock screen) and background audio
+         both depend on it. POST_NOTIFICATIONS is runtime-granted on
+         Android 13+ (asked in MainActivity the first time playback
+         starts); the two foreground-service permissions are normal
+         (install-time) declarations. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <!-- Local (LOCAL source type) video files are accessed exclusively
          via Storage Access Framework tree URIs (see LocalSourceFileSystem)
          — no broad storage permission is requested. -->
@@ -29,6 +40,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:supportsPictureInPicture="true"
             android:theme="@style/Theme.LocalTube"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
             <intent-filter>
@@ -36,6 +48,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Hosts the single ExoPlayer + MediaSession (see
+             playback/PlaybackService): gives the app its system media
+             notification and audio-focus handling, and keeps audio
+             running while the UI is backgrounded. The media3 action is
+             what lets MediaController/Assistant connect. -->
+        <service
+            android:name=".playback.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <!-- LocalTubeApplication implements Configuration.Provider, so
              WorkManager must be initialized on demand with our custom

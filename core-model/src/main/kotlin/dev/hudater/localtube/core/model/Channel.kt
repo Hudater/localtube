@@ -10,6 +10,10 @@ data class Channel(
     val id: ChannelId,
     val name: String,
     val thumbnailPath: String?,
+    // Absolute path of the avatar cached app-internally by
+    // [dev.hudater.localtube.core.data.scan.ChannelIconWorker]; null
+    // until that best-effort pass fetches one.
+    val iconPath: String? = null,
 )
 
 @JvmInline

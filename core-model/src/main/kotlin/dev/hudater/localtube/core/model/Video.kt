@@ -18,6 +18,9 @@ data class Video(
     val durationSeconds: Long?,
     val thumbnailPath: String?,
     val addedAtEpochMillis: Long,
+    // yt-dlp --write-description sidecar text (truncated by the scan
+    // engine); null when the download has no description sidecar.
+    val description: String? = null,
 )
 
 /**

@@ -49,6 +49,7 @@ fun ChannelEntity.toDomain(): Channel = Channel(
     id = ChannelId(id),
     name = name,
     thumbnailPath = thumbnailPath,
+    iconPath = iconPath,
 )
 
 fun PlaylistEntity.toDomain(): Playlist = Playlist(
@@ -70,4 +71,5 @@ fun VideoEntity.toDomain(): Video = Video(
     durationSeconds = durationSeconds,
     thumbnailPath = thumbnailPath,
     addedAtEpochMillis = addedAtEpochMillis,
+    description = description,
 )

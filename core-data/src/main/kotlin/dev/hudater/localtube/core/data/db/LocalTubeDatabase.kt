@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         PlaylistEntity::class,
         VideoEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class LocalTubeDatabase : RoomDatabase() {
@@ -33,7 +33,14 @@ abstract class LocalTubeDatabase : RoomDatabase() {
                     context.applicationContext,
                     LocalTubeDatabase::class.java,
                     DB_NAME,
-                ).build().also { instance = it }
+                    // The library is fully rebuildable from disk (scans
+                    // re-index everything; thumbnails/icons live in the
+                    // app cache), so schema bumps wipe and rescan instead
+                    // of shipping hand-written migrations.
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
+                    .also { instance = it }
             }
     }
 }

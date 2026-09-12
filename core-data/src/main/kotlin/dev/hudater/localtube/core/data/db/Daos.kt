@@ -54,6 +54,16 @@ interface ChannelDao {
 
     @Query("SELECT * FROM channels WHERE id = :id")
     suspend fun getById(id: String): ChannelEntity?
+
+    /**
+     * Channels whose avatar hasn't been fetched (or carried through a
+     * scan) yet — consumed by the ChannelIconWorker enrichment pass.
+     */
+    @Query("SELECT * FROM channels WHERE iconPath IS NULL")
+    suspend fun channelsWithoutIcon(): List<ChannelEntity>
+
+    @Query("UPDATE channels SET iconPath = :path WHERE id = :id")
+    suspend fun updateChannelIconPath(id: String, path: String)
 }
 
 @Dao
@@ -86,7 +96,7 @@ interface VideoDao {
     @Query("DELETE FROM videos WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
 
-    @Query("SELECT id, fileSizeBytes, fileLastModifiedEpochMillis, addedAtEpochMillis, title, channelId FROM videos WHERE sourceId = :sourceId")
+    @Query("SELECT id, fileSizeBytes, fileLastModifiedEpochMillis, addedAtEpochMillis, title, channelId, playlistId, playlistIndex, description FROM videos WHERE sourceId = :sourceId")
     suspend fun getKnownFileFingerprints(sourceId: Long): List<VideoFingerprint>
 
     @Query("SELECT * FROM videos WHERE thumbnailPath IS NULL")
@@ -95,16 +105,23 @@ interface VideoDao {
     @Query("UPDATE videos SET thumbnailPath = :path WHERE id = :id")
     suspend fun updateThumbnailPath(id: String, path: String)
 
+    /** Persisted by the thumbnail fallback pass for rows indexed without a duration — see ThumbnailFallbackGenerator. */
+    @Query("UPDATE videos SET durationSeconds = :seconds WHERE id = :id")
+    suspend fun updateDurationSeconds(id: String, seconds: Long)
+
     /**
      * Home feed: random order across whichever sources are selected,
-     * optionally narrowed to one channel. See docs/ARCHITECTURE.md,
-     * "Home feed ordering", for why this is RANDOM() rather than
-     * chronological.
+     * optionally narrowed to one channel. Root-level (standalone) videos
+     * only — playlist members surface through the Playlists tab instead
+     * (see docs/ARCHITECTURE.md, "Videos vs Playlists tab"). See
+     * docs/ARCHITECTURE.md, "Home feed ordering", for why this is
+     * RANDOM() rather than chronological.
      */
     @Query(
         """
         SELECT * FROM videos
         WHERE sourceId IN (:sourceIds)
+        AND playlistId IS NULL
         AND (:channelId IS NULL OR channelId = :channelId)
         ORDER BY RANDOM()
         """
@@ -130,6 +147,13 @@ interface VideoDao {
     suspend fun getById(id: String): VideoEntity?
 }
 
+/**
+ * Cheap per-row identity used by the scan engine's diff pass. Display
+ * and playlist fields ride along so ScanEngine's every-scan re-derivation
+ * (title/channel heuristics, directory-as-playlist membership and
+ * ordering, sidecar descriptions) can rewrite rows whose file bytes
+ * never changed.
+ */
 data class VideoFingerprint(
     val id: String,
     val fileSizeBytes: Long,
@@ -137,4 +161,7 @@ data class VideoFingerprint(
     val addedAtEpochMillis: Long,
     val title: String,
     val channelId: String?,
+    val playlistId: String?,
+    val playlistIndex: Int?,
+    val description: String?,
 )

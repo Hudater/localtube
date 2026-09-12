@@ -20,6 +20,7 @@ enum class FileKind {
     VIDEO,
     INFO_JSON,
     THUMBNAIL,
+    DESCRIPTION,
     OTHER,
 }
 

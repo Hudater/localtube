@@ -1,12 +1,20 @@
 package dev.hudater.localtube
 
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -16,6 +24,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.hudater.localtube.core.model.ChannelId
 import dev.hudater.localtube.core.model.PlaylistId
+import dev.hudater.localtube.playback.PipState
+import dev.hudater.localtube.playback.PlaybackState
 import dev.hudater.localtube.ui.SelectionState
 import dev.hudater.localtube.ui.channel.ChannelScreen
 import dev.hudater.localtube.ui.channel.ChannelViewModel
@@ -29,18 +39,67 @@ import dev.hudater.localtube.ui.settings.SettingsScreen
 import dev.hudater.localtube.ui.settings.SettingsViewModel
 import dev.hudater.localtube.ui.theme.LocalTubeTheme
 import dev.hudater.localtube.work.ScanScheduler
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+
+    /** The media notification needs POST_NOTIFICATIONS on Android 13+. */
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            // Denied → everything still works; the notification just
+            // won't show until the user grants it in Settings.
+        }
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val container = (application as LocalTubeApplication).container
+        val manager = container.playbackManager
         ScanScheduler.schedulePeriodic(applicationContext)
 
         setContent {
             LocalTubeTheme {
+                val playbackState by manager.state.collectAsState()
+
+                // Ask for notification permission once, the first time
+                // playback actually starts (not on cold launch).
+                val notificationPermissionAsked = remember { mutableStateOf(false) }
+                LaunchedEffect(playbackState) {
+                    if (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        playbackState is PlaybackState.Playing &&
+                        !notificationPermissionAsked.value &&
+                        ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            android.Manifest.permission.POST_NOTIFICATIONS,
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermissionAsked.value = true
+                        requestNotificationPermission.launch(
+                            android.Manifest.permission.POST_NOTIFICATIONS,
+                        )
+                    }
+                }
+
+                // API 31+: keep the auto-enter PiP params in sync with
+                // play/pause so leaving the app while PAUSED doesn't pop a
+                // frozen-frame PiP window. (API 26-30 use the explicit
+                // onUserLeaveHint entry below instead.)
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        var lastIsPlaying: Boolean? = null
+                        while (true) {
+                            val now = manager.isPlaying
+                            if (now != lastIsPlaying) {
+                                lastIsPlaying = now
+                                setPictureInPictureParams(manager.pipParams(this@MainActivity))
+                            }
+                            delay(500)
+                        }
+                    }
+                }
+
                 val navController = rememberNavController()
                 val selectionState = remember { SelectionState() }
                 // In-memory lookup so the player/channel/playlist screens
@@ -187,6 +246,32 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // API 26-30: no auto-enter, so hop into PiP explicitly as the
+        // user leaves (home gesture, recents switch). API 31+ is handled
+        // by setAutoEnterEnabled via setPictureInPictureParams above.
+        // Screen-off doesn't fire this and doesn't need it — audio keeps
+        // playing in the background via the foreground media service.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            val manager = (application as LocalTubeApplication).container.playbackManager
+            if (manager.isPlaying && !isInPictureInPictureMode) {
+                enterPictureInPictureMode(manager.pipParams(this))
+            }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        // Compose-readable flag; PlayerScreen reads PipState.inPipMode to
+        // hide its controls and the title below the video so the surface
+        // fills the PiP window.
+        PipState.inPipMode = isInPictureInPictureMode
     }
 }
 

@@ -15,6 +15,9 @@ import java.io.FileOutputStream
  * For videos with no sidecar thumbnail (see [dev.hudater.localtube.core.filesystem.FileKind.THUMBNAIL]
  * absent in their [dev.hudater.localtube.core.data.scan.ScanEngine] file
  * group), grabs a single frame and caches it to app-internal storage.
+ * The same retriever pass doubles as the duration fallback for rows
+ * indexed without one — bare downloads embed duration metadata in the
+ * container, so no sidecar is needed to read it.
  *
  * Deliberately NOT part of [ScanEngine]: frame extraction requires
  * opening the video file itself (slow, especially over SMB), so it runs
@@ -46,6 +49,19 @@ class ThumbnailFallbackGenerator(
             try {
                 fileSystem.openRandomAccess(source, video.filePath).use { handle ->
                     retriever.setDataSource(RandomAccessMediaDataSource(handle))
+
+                    // Duration fallback: yt-dlp embeds the duration in
+                    // the container metadata, so bare downloads (no
+                    // info.json) can still get their duration chip filled
+                    // here. Reported as a string in milliseconds;
+                    // persisted as whole seconds.
+                    if (video.durationSeconds == null) {
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                            ?.toLongOrNull()
+                            ?.takeIf { it > 0L }
+                            ?.let { videoDao.updateDurationSeconds(video.id.value, it / 1000L) }
+                    }
+
                     // 1s in, not frame 0 — frame 0 on many downloads is a
                     // black/blank frame.
                     val frame = retriever.getFrameAtTime(

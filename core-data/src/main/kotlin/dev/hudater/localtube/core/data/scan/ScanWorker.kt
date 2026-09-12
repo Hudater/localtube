@@ -43,12 +43,19 @@ class ScanWorker(
             }
         }
 
-        // Kick off the thumbnail-enrichment pass regardless of scan
-        // outcome — new videos show title-first, thumbnails arrive after.
+        // Kick off the enrichment passes regardless of scan outcome — new
+        // videos show title-first, thumbnails and channel icons arrive
+        // after. The icon pass depends on the channel rows the scan above
+        // just wrote, and both are best-effort background work.
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(
             ThumbnailFallbackWorker.UNIQUE_WORK_NAME,
             ExistingWorkPolicy.REPLACE,
             OneTimeWorkRequestBuilder<ThumbnailFallbackWorker>().build(),
+        )
+        WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+            ChannelIconWorker.UNIQUE_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<ChannelIconWorker>().build(),
         )
 
         return if (anyFailure) Result.retry() else Result.success()

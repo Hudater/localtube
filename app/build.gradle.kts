@@ -104,6 +104,10 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.common)
+    // Hosts the ExoPlayer in a MediaSessionService — system media
+    // notification + audio focus. Kept on the same catalog version as
+    // the other media3 artifacts above.
+    implementation(libs.media3.session)
     implementation(libs.coil.compose)
     implementation(libs.coil)
     implementation(libs.smbj)

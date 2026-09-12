@@ -11,14 +11,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
@@ -28,12 +30,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -48,10 +48,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -59,6 +62,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.PlayerView
 import dev.hudater.localtube.core.model.Video
+import dev.hudater.localtube.playback.PipState
 import dev.hudater.localtube.playback.PlaybackManager
 import dev.hudater.localtube.playback.PlaybackState
 import kotlinx.coroutines.delay
@@ -68,6 +72,13 @@ import kotlinx.coroutines.delay
  * controller is disabled) with tap-to-toggle controls, double-tap side
  * seek, ±10s, scrub bar, playback speed, and a fullscreen button that
  * rotates to landscape and hides the system bars.
+ *
+ * Like the YouTube app, the controls sit on gradients instead of a flat
+ * scrim: a short top gradient carries back / title / settings, a bottom
+ * gradient carries the scrubber + time row at the very bottom edge, and
+ * the center buttons float over the video, scaled up in fullscreen. The
+ * speed picker is a compact panel anchored inside the surface (see
+ * [SpeedSheet]), opened from the gear or the numeric speed chip.
  *
  * Backing playback lives in the app-scoped [PlaybackManager], so leaving
  * this screen (back press) keeps the video running in the floating mini
@@ -93,7 +104,9 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(true) }
     var scrubPositionMs by remember { mutableLongStateOf(-1L) } // -1 = not scrubbing
     var playbackSpeed by remember { mutableStateOf(1f) }
-    var showSpeedMenu by remember { mutableStateOf(false) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
+    val inPip = PipState.inPipMode
+    LaunchedEffect(inPip) { if (inPip) controlsVisible = false }
 
     fun enterFullscreen() {
         isFullscreen = true
@@ -143,9 +156,10 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide the controls after a few idle seconds while playing.
-    LaunchedEffect(controlsVisible, isPlaying) {
-        if (controlsVisible && isPlaying) {
+    // Auto-hide the controls after a few idle seconds while playing — but
+    // never while the speed sheet is open on top of them.
+    LaunchedEffect(controlsVisible, isPlaying, showSpeedSheet) {
+        if (controlsVisible && isPlaying && !showSpeedSheet) {
             delay(3_000)
             controlsVisible = false
         }
@@ -153,7 +167,7 @@ fun PlayerScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Box(
-            modifier = if (isFullscreen) {
+            modifier = if (isFullscreen || inPip) {
                 Modifier.fillMaxSize()
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -204,7 +218,7 @@ fun PlayerScreen(
                             playbackSpeed = playbackSpeed,
                             onOpenSpeedMenu = {
                                 controlsVisible = true
-                                showSpeedMenu = true
+                                showSpeedSheet = true
                             },
                             onScrub = { scrubPositionMs = it },
                             onScrubFinished = {
@@ -219,11 +233,25 @@ fun PlayerScreen(
                             },
                         )
                     }
+
+                    if (showSpeedSheet) {
+                        SpeedSheet(
+                            currentSpeed = playbackSpeed,
+                            isLandscape = isFullscreen,
+                            onSpeedSelected = { speed ->
+                                playbackSpeed = speed
+                                manager.setPlaybackSpeed(speed)
+                                showSpeedSheet = false
+                            },
+                            onDismiss = { showSpeedSheet = false },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
 
-        if (!isFullscreen) {
+        if (!isFullscreen && !inPip) {
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -231,50 +259,7 @@ fun PlayerScreen(
             )
         }
     }
-
-    // Playback speed picker: 0.25x to 3.0x in 0.25 steps, like YouTube's
-    // settings sheet.
-    if (showSpeedMenu) {
-        AlertDialog(
-            onDismissRequest = { showSpeedMenu = false },
-            title = { Text("Playback speed") },
-            text = {
-                LazyColumn {
-                    itemsIndexed(PLAYBACK_SPEEDS) { _, speed ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    playbackSpeed = speed
-                                    manager.setPlaybackSpeed(speed)
-                                    showSpeedMenu = false
-                                }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = playbackSpeed == speed,
-                                onClick = null,
-                            )
-                            Text(
-                                text = formatSpeed(speed),
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-        )
-    }
 }
-
-/** 0.25x .. 3.0x in 0.25 increments. */
-private val PLAYBACK_SPEEDS: List<Float> = (1..12).map { it * 0.25f }
-
-private fun formatSpeed(speed: Float): String =
-    "${speed.toString().trimEnd('0', '.')}x"
 
 @Composable
 private fun PlayerControls(
@@ -293,65 +278,119 @@ private fun PlayerControls(
     onBack: () -> Unit,
     onToggleFullscreen: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.4f))
-            // Keep controls clear of the status bar / camera cutout and
-            // gesture bar — the gear/back row was unreachable under call
-            // bubbles and the notch otherwise.
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(vertical = 4.dp),
-    ) {
-        Row(
+    // Everything is one notch bigger in fullscreen/landscape, where the
+    // video fills the screen and there is no UI around it.
+    val rowIconSize = if (isFullscreen) 28.dp else 24.dp
+    val seekIconSize = if (isFullscreen) 56.dp else 40.dp
+    val seekButtonSize = if (isFullscreen) 72.dp else 56.dp
+    val playPauseIconSize = if (isFullscreen) 64.dp else 48.dp
+    val playPauseButtonSize = if (isFullscreen) 84.dp else 64.dp
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Top gradient: back / title / settings, fading into the video.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .height(120.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent),
+                    ),
+                ),
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-            }
-            Text(
-                text = title,
-                color = Color.White,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onOpenSpeedMenu) {
-                Icon(Icons.Filled.Settings, contentDescription = "Playback settings", tint = Color.White)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // Keep controls clear of the status bar / camera cutout —
+                    // the gear/back row was unreachable under call bubbles
+                    // and the notch otherwise. (The inset is zero while
+                    // fullscreen has the system bars hidden.)
+                    .statusBarsPadding()
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(seekButtonSize)) {
+                    Icon(
+                        Icons.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(rowIconSize),
+                    )
+                }
+                Text(
+                    text = title,
+                    color = Color.White,
+                    style = if (isFullscreen) {
+                        MaterialTheme.typography.titleMedium
+                    } else {
+                        MaterialTheme.typography.titleSmall
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onOpenSpeedMenu, modifier = Modifier.size(seekButtonSize)) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "Playback settings",
+                        tint = Color.White,
+                        modifier = Modifier.size(rowIconSize),
+                    )
+                }
             }
         }
 
+        // Center controls, floating over the video like YouTube's.
         Row(
             modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(32.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isFullscreen) 48.dp else 32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { onSeekBy(-10_000) }) {
-                Icon(Icons.Filled.Replay10, contentDescription = "Back 10 seconds", tint = Color.White)
+            IconButton(onClick = { onSeekBy(-10_000) }, modifier = Modifier.size(seekButtonSize)) {
+                Icon(
+                    Icons.Filled.Replay10,
+                    contentDescription = "Back 10 seconds",
+                    tint = Color.White,
+                    modifier = Modifier.size(seekIconSize),
+                )
             }
-            IconButton(onClick = onPlayPause) {
+            IconButton(onClick = onPlayPause, modifier = Modifier.size(playPauseButtonSize)) {
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
                     tint = Color.White,
+                    modifier = Modifier.size(playPauseIconSize),
                 )
             }
-            IconButton(onClick = { onSeekBy(10_000) }) {
-                Icon(Icons.Filled.Forward10, contentDescription = "Forward 10 seconds", tint = Color.White)
+            IconButton(onClick = { onSeekBy(10_000) }, modifier = Modifier.size(seekButtonSize)) {
+                Icon(
+                    Icons.Filled.Forward10,
+                    contentDescription = "Forward 10 seconds",
+                    tint = Color.White,
+                    modifier = Modifier.size(seekIconSize),
+                )
             }
         }
 
+        // Bottom gradient: scrubber directly above the time row, both
+        // pinned to the bottom edge of the video.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .height(140.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)),
+                    ),
+                )
+                // Only the fullscreen surface touches the screen's bottom
+                // edge; in portrait the video sits at the top of the screen,
+                // where the navigation-bar inset would wrongly push the
+                // timeline up and detach it from the video's bottom.
+                .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier),
         ) {
+            Spacer(modifier = Modifier.weight(1f))
             val sliderValue = if (scrubPositionMs >= 0) scrubPositionMs else positionMs
             Slider(
                 value = if (durationMs > 0) sliderValue.toFloat() / durationMs else 0f,
@@ -362,9 +401,12 @@ private fun PlayerControls(
                     activeTrackColor = Color.White,
                     inactiveTrackColor = Color.White.copy(alpha = 0.3f),
                 ),
+                modifier = Modifier.padding(horizontal = 8.dp),
             )
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -373,11 +415,30 @@ private fun PlayerControls(
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onToggleFullscreen) {
+                // Speed entry next to fullscreen: YouTube landscape always
+                // shows a compact numeric chip ("2.0"); portrait only shows
+                // a chip while a custom speed is active ("1.5x").
+                if (isFullscreen || playbackSpeed != 1f) {
+                    Text(
+                        text = if (isFullscreen) {
+                            formatSpeedValue(playbackSpeed)
+                        } else {
+                            formatSpeed(playbackSpeed)
+                        },
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenSpeedMenu)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+                IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(seekButtonSize)) {
                     Icon(
                         if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
                         contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
                         tint = Color.White,
+                        modifier = Modifier.size(rowIconSize),
                     )
                 }
             }

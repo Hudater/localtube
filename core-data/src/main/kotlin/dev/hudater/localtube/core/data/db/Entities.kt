@@ -27,6 +27,9 @@ data class ChannelEntity(
     @PrimaryKey val id: String, // yt-dlp channel_id / uploader_id
     val name: String,
     val thumbnailPath: String?,
+    // Absolute path of the avatar cached app-internally by
+    // ChannelIconWorker; null until that best-effort pass fetches one.
+    val iconPath: String? = null,
 )
 
 @Entity(
@@ -82,4 +85,7 @@ data class VideoEntity(
     // hashing — see docs/ARCHITECTURE.md, "Scan diffing strategy".
     val fileSizeBytes: Long,
     val fileLastModifiedEpochMillis: Long,
+    // yt-dlp --write-description sidecar text, truncated by ScanEngine
+    // (display-only); null when the download has no .description sidecar.
+    val description: String? = null,
 )

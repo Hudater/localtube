@@ -14,6 +14,7 @@ object FileKindClassifier {
         val lower = filename.lowercase()
         return when {
             lower.endsWith(".info.json") -> FileKind.INFO_JSON
+            lower.endsWith(".description") -> FileKind.DESCRIPTION
             thumbnailExtensions.any { lower.endsWith(".$it") } -> FileKind.THUMBNAIL
             videoExtensions.any { lower.endsWith(".$it") } -> FileKind.VIDEO
             else -> FileKind.OTHER
@@ -29,6 +30,8 @@ object FileKindClassifier {
         return when {
             filename.endsWith(".info.json", ignoreCase = true) ->
                 filename.dropLast(".info.json".length)
+            filename.endsWith(".description", ignoreCase = true) ->
+                filename.dropLast(".description".length)
             else -> filename.substringBeforeLast('.')
         }
     }
