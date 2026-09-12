@@ -144,18 +144,20 @@ class PlaybackManager(
     }
 
     /**
-     * 16:9 picture-in-picture window params. On Android 12+ these carry
-     * setAutoEnterEnabled so leaving the app while playing pops straight
-     * into PiP with no transition jank; MainActivity keeps them updated
-     * on play/pause changes (auto-enter must be OFF while paused, or the
-     * system would show a frozen frame). On API 26-30 MainActivity falls
-     * back to an explicit enter from onUserLeaveHint with these params.
+     * 16:9 picture-in-picture window params. [autoEnter] feeds
+     * setAutoEnterEnabled on Android 12+; MainActivity passes
+     * `isPlaying && the player route is showing` so leaving the app
+     * auto-enters PiP only when the full player is visible — auto-enter
+     * while the mini popup plays over Home would capture the whole home
+     * screen, and auto-enter while paused would show a frozen frame.
+     * (The API 26-30 explicit enter from onUserLeaveHint ignores
+     * autoEnter; its default just mirrors [isPlaying].)
      */
-    fun pipParams(context: Context): PictureInPictureParams {
+    fun pipParams(context: Context, autoEnter: Boolean = isPlaying): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(16, 9))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(isPlaying)
+            builder.setAutoEnterEnabled(autoEnter)
         }
         return builder.build()
     }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -116,6 +117,9 @@ fun MiniPlayerOverlay(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .offset { IntOffset(dragX.value.roundToInt(), dragY.roundToInt()) }
+                // Clear the gesture bar: the popup's title row must never
+                // sit under the system navigation area.
+                .navigationBarsPadding()
                 .padding(12.dp)
                 .width(windowWidthDp.dp)
                 .clip(RoundedCornerShape(12.dp))

@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -42,6 +43,14 @@ import dev.hudater.localtube.work.ScanScheduler
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+
+    /**
+     * Hoisted NavHostController: [onUserLeaveHint] fires outside
+     * composition and needs the visible route (and, when playback runs
+     * in the floating popup over a non-player screen, needs to hop to
+     * the player route) before entering PiP.
+     */
+    private var navController: NavHostController? = null
 
     /** The media notification needs POST_NOTIFICATIONS on Android 13+. */
     private val requestNotificationPermission =
@@ -82,25 +91,39 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val navController = rememberNavController()
+                // Keep the activity-level reference in sync for the
+                // non-composition PiP path (onUserLeaveHint).
+                this@MainActivity.navController = navController
+
                 // API 31+: keep the auto-enter PiP params in sync with
-                // play/pause so leaving the app while PAUSED doesn't pop a
-                // frozen-frame PiP window. (API 26-30 use the explicit
+                // play/pause AND the visible screen, so leaving the app
+                // pops straight into PiP only while the full player route
+                // is showing — auto-enter while the mini popup plays over
+                // Home would capture the whole home screen, and entering
+                // while PAUSED would show a frozen frame. The route is
+                // read from the controller each poll (the boolean must
+                // not be captured stale), so flipping screens updates
+                // auto-enter within ~500ms. (API 26-30 use the explicit
                 // onUserLeaveHint entry below instead.)
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        var lastIsPlaying: Boolean? = null
+                        var lastAutoEnter: Boolean? = null
                         while (true) {
-                            val now = manager.isPlaying
-                            if (now != lastIsPlaying) {
-                                lastIsPlaying = now
-                                setPictureInPictureParams(manager.pipParams(this@MainActivity))
+                            val onPlayerRoute =
+                                navController.currentDestination?.route?.startsWith("player") == true
+                            val autoEnter = manager.isPlaying && onPlayerRoute
+                            if (autoEnter != lastAutoEnter) {
+                                lastAutoEnter = autoEnter
+                                setPictureInPictureParams(
+                                    manager.pipParams(this@MainActivity, autoEnter = autoEnter),
+                                )
                             }
                             delay(500)
                         }
                     }
                 }
 
-                val navController = rememberNavController()
                 val selectionState = remember { SelectionState() }
                 // In-memory lookup so the player/channel/playlist screens
                 // don't need Video/Channel/Playlist to be Parcelable — the
@@ -231,13 +254,15 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Floating mini player: shows whenever a video is playing
-                // and we're not already on the full player screen. Tap to
-                // expand, drag to move, X to close.
+                // and we're not already on the full player screen (or in
+                // PiP — the system window must show only the video, not a
+                // home screen with a popup on top). Tap to expand, drag
+                // to move, X to close.
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = backStackEntry?.destination?.route
                 MiniPlayerOverlay(
                     manager = container.playbackManager,
-                    hidden = currentRoute?.startsWith("player") == true,
+                    hidden = currentRoute?.startsWith("player") == true || PipState.inPipMode,
                     onExpand = {
                         container.playbackManager.currentVideo?.let { video ->
                             navController.navigate("player/${video.id.value}")
@@ -258,6 +283,16 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             val manager = (application as LocalTubeApplication).container.playbackManager
             if (manager.isPlaying && !isInPictureInPictureMode) {
+                // If playback runs in the floating popup over some other
+                // screen (Home, Settings…), navigate to the player route
+                // FIRST — otherwise the PiP window would capture that
+                // whole screen instead of just the video.
+                val route = navController?.currentDestination?.route
+                if (route?.startsWith("player") != true) {
+                    manager.currentVideo?.let { video ->
+                        navController?.navigate("player/${video.id.value}")
+                    }
+                }
                 enterPictureInPictureMode(manager.pipParams(this))
             }
         }

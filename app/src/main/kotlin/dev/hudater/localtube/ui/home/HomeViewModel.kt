@@ -28,6 +28,8 @@ data class HomeUiState(
     val channels: List<Channel> = emptyList(),
     val videos: List<Video> = emptyList(),
     val isRefreshing: Boolean = false,
+    /** Live search text; empty means the feed is unfiltered. */
+    val query: String = "",
 )
 
 class HomeViewModel(
@@ -39,6 +41,14 @@ class HomeViewModel(
 ) : ViewModel() {
 
     private val isRefreshing = MutableStateFlow(false)
+
+    /** Live search text for the home feed; empty string = unfiltered. */
+    val query = MutableStateFlow("")
+
+    /** Every configured source (hidden included) for the gear-menu export. */
+    val sources: StateFlow<List<Source>> =
+        sourceRepository.observeAllSources()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val uiState: StateFlow<HomeUiState> =
         combine(
@@ -53,20 +63,23 @@ class HomeViewModel(
             combine(
                 libraryRepository.observeChannels(effectiveSourceIds),
                 libraryRepository.observeFeed(effectiveSourceIds, selectedChannelId),
-            ) { channels, videos ->
+                query,
+            ) { channels, videos, activeQuery ->
+                val filtered = filterFeed(videos, channels, activeQuery)
                 // Diagnostic: a DB with rows + an empty feed shows up here
                 // as videos=0, narrowing "scan didn't write" vs "UI can't
                 // read" in one logcat line.
                 Log.d(
                     "LocalTubeFeed",
                     "sourceIds=${effectiveSourceIds.map { it.value }} channelId=${selectedChannelId?.value} " +
-                        "channels=${channels.size} videos=${videos.size}",
+                        "channels=${channels.size} videos=${filtered.size} query='$activeQuery'",
                 )
                 HomeUiState(
                     visibleSources = visibleSources,
                     channels = channels,
-                    videos = videos,
+                    videos = filtered,
                     isRefreshing = refreshing,
+                    query = activeQuery,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
@@ -81,6 +94,35 @@ class HomeViewModel(
         viewModelScope.launch {
             kotlinx.coroutines.delay(1_500)
             isRefreshing.value = false
+        }
+    }
+
+    /** Updates the live search text; the feed re-filters on every change. */
+    fun onQueryChange(value: String) {
+        query.value = value
+    }
+
+    /** Resets the search (clear button / collapsing the search field). */
+    fun clearQuery() {
+        query.value = ""
+    }
+
+    /**
+     * Live search: keep a video when its title OR its channel's name
+     * contains the query (case-insensitive). An empty query means no
+     * filtering — channel-name matching only widens the net, a video
+     * whose channel name matches stays visible even if its title
+     * doesn't contain the text.
+     */
+    private fun filterFeed(videos: List<Video>, channels: List<Channel>, activeQuery: String): List<Video> {
+        val needle = activeQuery.trim()
+        if (needle.isEmpty()) return videos
+        val matchingChannelIds = channels
+            .filter { it.name.contains(needle, ignoreCase = true) }
+            .map { it.id }
+            .toSet()
+        return videos.filter { video ->
+            video.title.contains(needle, ignoreCase = true) || video.channelId in matchingChannelIds
         }
     }
 

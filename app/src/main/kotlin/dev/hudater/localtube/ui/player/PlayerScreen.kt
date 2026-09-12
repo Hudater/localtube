@@ -4,8 +4,12 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +24,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
@@ -34,8 +38,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -45,22 +47,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media3.ui.PlayerView
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.playback.PipState
 import dev.hudater.localtube.playback.PlaybackManager
@@ -70,15 +72,19 @@ import kotlinx.coroutines.delay
 /**
  * YouTube-style player: custom Compose overlay (PlayerView's built-in
  * controller is disabled) with tap-to-toggle controls, double-tap side
- * seek, ±10s, scrub bar, playback speed, and a fullscreen button that
- * rotates to landscape and hides the system bars.
+ * seek, ±10s, a slim scrub bar, playback speed, and a fullscreen button
+ * that rotates to landscape. The system bars stay visible in every mode
+ * and the video is inset between them — status bar above, gesture bar
+ * below — so the notched top strip is always a reserved black band
+ * instead of being covered by the picture.
  *
  * Like the YouTube app, the controls sit on gradients instead of a flat
  * scrim: a short top gradient carries back / title / settings, a bottom
- * gradient carries the scrubber + time row at the very bottom edge, and
- * the center buttons float over the video, scaled up in fullscreen. The
- * speed picker is a compact panel anchored inside the surface (see
- * [SpeedSheet]), opened from the gear or the numeric speed chip.
+ * gradient carries the time + timeline + speed + fullscreen row at the
+ * very bottom edge, and the center buttons float over the video, scaled
+ * up in fullscreen. The speed picker is a compact panel anchored inside
+ * the surface (see [SpeedSheet]), opened from the gear or the circular
+ * speed chip. In portrait a collapsible description sits under the title.
  *
  * Backing playback lives in the app-scoped [PlaybackManager], so leaving
  * this screen (back press) keeps the video running in the floating mini
@@ -92,7 +98,6 @@ fun PlayerScreen(
 ) {
     val playback by manager.state.collectAsState()
     val context = LocalContext.current
-    val view = LocalView.current
     val activity = context as? Activity
 
     LaunchedEffect(video) { manager.open(video) }
@@ -123,23 +128,11 @@ fun PlayerScreen(
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            // Leaving the screen mid-fullscreen must restore system bars
-            // and orientation even if fullscreen state was never toggled
-            // back by the user.
+            // Leaving the screen mid-fullscreen must restore the system
+            // orientation even if fullscreen state was never toggled back
+            // by the user. (The system bars are never hidden anymore, so
+            // there is nothing to restore for them.)
             exitFullscreen()
-        }
-    }
-
-    // Immersive mode while fullscreen.
-    LaunchedEffect(isFullscreen) {
-        val window = activity?.window ?: return@LaunchedEffect
-        val controller = WindowCompat.getInsetsController(window, view)
-        if (isFullscreen) {
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -157,8 +150,11 @@ fun PlayerScreen(
     }
 
     // Auto-hide the controls after a few idle seconds while playing — but
-    // never while the speed sheet is open on top of them.
-    LaunchedEffect(controlsVisible, isPlaying, showSpeedSheet) {
+    // never while the speed sheet is open on top of them, and never in the
+    // middle of a scrub (every scrub event restarts the timer, so the
+    // seekbar can't vanish under the user's finger and strand the scrub
+    // state without a release to commit it).
+    LaunchedEffect(controlsVisible, isPlaying, showSpeedSheet, scrubPositionMs) {
         if (controlsVisible && isPlaying && !showSpeedSheet) {
             delay(3_000)
             controlsVisible = false
@@ -167,10 +163,25 @@ fun PlayerScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Box(
-            modifier = if (isFullscreen || inPip) {
-                Modifier.fillMaxSize()
-            } else {
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            modifier = when {
+                // Fullscreen: the video sits between the notch and the
+                // gesture bar. The system bars stay visible (they blend
+                // into the black background), so these insets are real
+                // and reliably reserve the notched strip.
+                isFullscreen -> Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                // PiP: the system already sizes the window to the video,
+                // don't inset it further.
+                inPip -> Modifier.fillMaxSize()
+                // Portrait: the 16:9 strip starts below the status bar /
+                // camera cutout. The controls are drawn inside this box,
+                // so they inherit the inset automatically.
+                else -> Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .aspectRatio(16f / 9f)
             },
             contentAlignment = Alignment.Center,
         ) {
@@ -257,6 +268,15 @@ fun PlayerScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(16.dp),
             )
+            // Collapsible description, YouTube watch-page style — only
+            // when the scan found a description sidecar for this video.
+            // Suppressed in fullscreen/PiP together with the title.
+            video.description?.let { description ->
+                VideoDescription(
+                    description = description,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                )
+            }
         }
     }
 }
@@ -301,10 +321,10 @@ private fun PlayerControls(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Keep controls clear of the status bar / camera cutout —
-                    // the gear/back row was unreachable under call bubbles
-                    // and the notch otherwise. (The inset is zero while
-                    // fullscreen has the system bars hidden.)
+                    // Keep the back/title/gear row clear of the status bar /
+                    // camera cutout. The video box above already applies (and
+                    // consumes) this inset, so in practice this is a no-op
+                    // safeguard for wherever the controls get hosted.
                     .statusBarsPadding()
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -372,8 +392,8 @@ private fun PlayerControls(
             }
         }
 
-        // Bottom gradient: scrubber directly above the time row, both
-        // pinned to the bottom edge of the video.
+        // Bottom gradient: one bottom row — time, slim timeline, speed,
+        // fullscreen — pinned to the bottom edge of the video.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -384,25 +404,16 @@ private fun PlayerControls(
                         listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)),
                     ),
                 )
-                // Only the fullscreen surface touches the screen's bottom
-                // edge; in portrait the video sits at the top of the screen,
-                // where the navigation-bar inset would wrongly push the
-                // timeline up and detach it from the video's bottom.
+                // In fullscreen the video box above already reserves the
+                // navigation-bar inset, so this is a no-op safeguard; in
+                // portrait the video sits at the top of the screen, where
+                // the navigation-bar inset must NOT push the timeline up
+                // and detach it from the video's bottom edge.
                 .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier),
         ) {
             Spacer(modifier = Modifier.weight(1f))
-            val sliderValue = if (scrubPositionMs >= 0) scrubPositionMs else positionMs
-            Slider(
-                value = if (durationMs > 0) sliderValue.toFloat() / durationMs else 0f,
-                onValueChange = { onScrub((it * durationMs).toLong()) },
-                onValueChangeFinished = onScrubFinished,
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = Color.White,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-                ),
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
+            val scrubbing = scrubPositionMs >= 0
+            val shownPositionMs = if (scrubbing) scrubPositionMs else positionMs
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -410,27 +421,37 @@ private fun PlayerControls(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "${formatTime(sliderValue)} / ${formatTime(durationMs)}",
+                    text = "${formatTime(shownPositionMs)} / ${formatTime(durationMs)}",
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.weight(1f),
                 )
-                // Speed entry next to fullscreen: YouTube landscape always
-                // shows a compact numeric chip ("2.0"); portrait only shows
-                // a chip while a custom speed is active ("1.5x").
-                if (isFullscreen || playbackSpeed != 1f) {
+                SlimSeekbar(
+                    positionMs = shownPositionMs,
+                    durationMs = durationMs,
+                    scrubbing = scrubbing,
+                    onScrub = onScrub,
+                    onScrubFinished = onScrubFinished,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp),
+                )
+                // Circular speed selector (like YouTube landscape): the
+                // current speed on a 1.5dp white ring, shown in both
+                // orientations; opens the same [SpeedSheet] as the gear.
+                Box(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .border(1.5.dp, Color.White, CircleShape)
+                        .clickable(onClick = onOpenSpeedMenu),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
-                        text = if (isFullscreen) {
-                            formatSpeedValue(playbackSpeed)
-                        } else {
-                            formatSpeed(playbackSpeed)
-                        },
+                        text = formatSpeed(playbackSpeed),
                         color = Color.White,
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onOpenSpeedMenu)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        fontSize = 10.sp,
+                        maxLines = 1,
                     )
                 }
                 IconButton(onClick = onToggleFullscreen, modifier = Modifier.size(seekButtonSize)) {
@@ -443,6 +464,131 @@ private fun PlayerControls(
                 }
             }
         }
+    }
+}
+
+/**
+ * Slim YouTube-style timeline: a 3dp rounded track spanning the full
+ * width — played portion solid white, remainder White 30%, no visible
+ * thumb at rest. While the finger is down ([scrubbing]) the track
+ * thickens to 5dp and a 12dp white dot marks the position. Tap seeks and
+ * drag scrubs: positions are reported through [onScrub] and committed on
+ * release through [onScrubFinished] (the caller owns the scrub state and
+ * passes the scrub-aware [positionMs]; its idle sentinel lives there).
+ */
+@Composable
+private fun SlimSeekbar(
+    positionMs: Long,
+    durationMs: Long,
+    scrubbing: Boolean,
+    onScrub: (Long) -> Unit,
+    onScrubFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Read the latest callbacks/duration inside the gesture detectors —
+    // pointerInput captures them once, not per recomposition.
+    val currentOnScrub by rememberUpdatedState(onScrub)
+    val currentOnScrubFinished by rememberUpdatedState(onScrubFinished)
+    val currentDurationMs by rememberUpdatedState(durationMs)
+
+    val fraction = if (durationMs > 0) {
+        (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    // YouTube grows the track slightly while the user is touching it.
+    val trackHeight by animateDpAsState(targetValue = if (scrubbing) 5.dp else 3.dp)
+
+    Canvas(
+        modifier = modifier
+            // Fixed-height touch target; the thin track is drawn
+            // vertically centered inside it.
+            .height(24.dp)
+            .pointerInput(Unit) {
+                // Drag = scrub. Absolute local x of the tracked pointer
+                // (no delta accumulation → no drift), mapped linearly to
+                // the duration.
+                detectDragGestures(
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val x = change.position.x.coerceIn(0f, size.width.toFloat())
+                        currentOnScrub((x / size.width * currentDurationMs).toLong())
+                    },
+                    onDragEnd = { currentOnScrubFinished() },
+                    onDragCancel = { currentOnScrubFinished() },
+                )
+            }
+            .pointerInput(Unit) {
+                // Tap = seek straight to the tapped position.
+                detectTapGestures(
+                    onTap = { offset ->
+                        val tapFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        currentOnScrub((tapFraction * currentDurationMs).toLong())
+                        // A tap is a complete scrub gesture: commit now.
+                        currentOnScrubFinished()
+                    },
+                )
+            },
+    ) {
+        val trackHeightPx = trackHeight.toPx()
+        val trackTop = (size.height - trackHeightPx) / 2f
+        val corner = CornerRadius(trackHeightPx / 2f)
+        // Remaining portion.
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.3f),
+            topLeft = Offset(0f, trackTop),
+            size = Size(size.width, trackHeightPx),
+            cornerRadius = corner,
+        )
+        // Played portion.
+        val playedWidth = size.width * fraction
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(0f, trackTop),
+            size = Size(playedWidth, trackHeightPx),
+            cornerRadius = corner,
+        )
+        // Thumb only while the user is scrubbing.
+        if (scrubbing) {
+            drawCircle(
+                color = Color.White,
+                radius = 6.dp.toPx(),
+                center = Offset(playedWidth, size.height / 2f),
+            )
+        }
+    }
+}
+
+/**
+ * Collapsible video description under the title, YouTube watch-page
+ * style: collapsed shows two lines plus a "More" toggle, expanded shows
+ * the full text plus "Less". Rendered only when the video actually has
+ * a description sidecar — see [Video.description].
+ */
+@Composable
+private fun VideoDescription(
+    description: String,
+    modifier: Modifier = Modifier,
+) {
+    // Collapse again if another video's description is shown here.
+    var expanded by remember(description) { mutableStateOf(false) }
+
+    Column(modifier = modifier) {
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFFAAAAAA),
+            maxLines = if (expanded) Int.MAX_VALUE else 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = if (expanded) "Less" else "More",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF3EA6FF),
+            modifier = Modifier
+                .clickable { expanded = !expanded }
+                .padding(top = 4.dp),
+        )
     }
 }
 
