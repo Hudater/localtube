@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
@@ -22,10 +25,13 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -76,6 +82,8 @@ fun PlayerScreen(
     var durationMs by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(true) }
     var scrubPositionMs by remember { mutableLongStateOf(-1L) } // -1 = not scrubbing
+    var playbackSpeed by remember { mutableStateOf(1f) }
+    var showSpeedMenu by remember { mutableStateOf(false) }
 
     fun enterFullscreen() {
         isFullscreen = true
@@ -183,6 +191,11 @@ fun PlayerScreen(
                             positionMs = positionMs,
                             durationMs = durationMs,
                             scrubPositionMs = scrubPositionMs,
+                            playbackSpeed = playbackSpeed,
+                            onOpenSpeedMenu = {
+                                controlsVisible = true
+                                showSpeedMenu = true
+                            },
                             onScrub = { scrubPositionMs = it },
                             onScrubFinished = {
                                 if (scrubPositionMs >= 0) state.player.seekTo(scrubPositionMs)
@@ -214,7 +227,50 @@ fun PlayerScreen(
             )
         }
     }
+
+    // Playback speed picker: 0.25x to 3.0x in 0.25 steps, like YouTube's
+    // settings sheet.
+    if (showSpeedMenu) {
+        AlertDialog(
+            onDismissRequest = { showSpeedMenu = false },
+            title = { Text("Playback speed") },
+            text = {
+                LazyColumn {
+                    itemsIndexed(PLAYBACK_SPEEDS) { _, speed ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    playbackSpeed = speed
+                                    player?.setPlaybackSpeed(speed)
+                                    showSpeedMenu = false
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = playbackSpeed == speed,
+                                onClick = null,
+                            )
+                            Text(
+                                text = formatSpeed(speed),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+        )
+    }
 }
+
+/** 0.25x .. 3.0x in 0.25 increments. */
+private val PLAYBACK_SPEEDS: List<Float> = (1..12).map { it * 0.25f }
+
+private fun formatSpeed(speed: Float): String =
+    "${speed.toString().trimEnd('0', '.')}x"
 
 @Composable
 private fun PlayerControls(
@@ -224,6 +280,8 @@ private fun PlayerControls(
     positionMs: Long,
     durationMs: Long,
     scrubPositionMs: Long,
+    playbackSpeed: Float,
+    onOpenSpeedMenu: () -> Unit,
     onScrub: (Long) -> Unit,
     onScrubFinished: () -> Unit,
     onPlayPause: () -> Unit,
@@ -249,6 +307,9 @@ private fun PlayerControls(
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
+            IconButton(onClick = onOpenSpeedMenu) {
+                Icon(Icons.Filled.Settings, contentDescription = "Playback settings", tint = Color.White)
+            }
         }
 
         Row(
