@@ -63,6 +63,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.PlayerView
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.playback.PipState
@@ -74,18 +77,24 @@ import kotlinx.coroutines.delay
  * YouTube-style player: custom Compose overlay (PlayerView's built-in
  * controller is disabled) with tap-to-toggle controls, double-tap side
  * seek, ±10s, a slim scrub bar, playback speed, and a fullscreen button
- * that rotates to landscape. The system bars stay visible in every mode
- * and the video is inset between them — status bar above, gesture bar
- * below — so the notched top strip is always a reserved black band
- * instead of being covered by the picture.
+ * that rotates to landscape.
  *
- * Like the YouTube app, the controls sit on gradients instead of a flat
- * scrim: a short top gradient carries back / title / settings, a bottom
- * gradient carries the time + timeline + speed + fullscreen row at the
- * very bottom edge, and the center buttons float over the video, scaled
- * up in fullscreen. The speed picker is a compact panel anchored inside
- * the surface (see [SpeedSheet]), opened from the gear or the circular
- * speed chip. In portrait a collapsible description sits under the title.
+ * The two orientations behave differently, like the YouTube app: portrait
+ * keeps the 16:9 strip below the status bar / camera cutout — the notched
+ * top strip is always a reserved black band instead of being covered by
+ * the picture — while fullscreen goes full-bleed and immersive: the video
+ * fills the screen edge-to-edge and the system bars are hidden (they come
+ * back as transparent overlays when the user swipes).
+ *
+ * The controls sit on gradients instead of a flat scrim: a short top
+ * gradient carries back / title / settings, a bottom gradient carries
+ * the time + timeline + speed + fullscreen row at the very bottom edge,
+ * and the center buttons float over the video, scaled up in fullscreen.
+ * The speed picker ([SpeedSheet]) is a dark panel — centered over the
+ * surface in fullscreen, a full-width bottom sheet on the screen in
+ * portrait — opened from the gear or the circular speed chip and kept
+ * open for live preview until the scrim is tapped. In portrait a
+ * collapsible description sits under the title.
  *
  * Backing playback lives in the app-scoped [PlaybackManager], so leaving
  * this screen (back press) keeps the video running in the floating mini
@@ -112,15 +121,43 @@ fun PlayerScreen(
     var playbackSpeed by remember { mutableStateOf(1f) }
     var showSpeedSheet by remember { mutableStateOf(false) }
     val inPip = PipState.inPipMode
-    LaunchedEffect(inPip) { if (inPip) controlsVisible = false }
+    LaunchedEffect(inPip) {
+        if (inPip) {
+            // PiP shows the bare video: drop the controls and dismiss
+            // the speed sheet along with them.
+            controlsVisible = false
+            showSpeedSheet = false
+        }
+    }
+
+    // Immersive mode, fullscreen only: while the video fills the screen
+    // the system bars are hidden and come back as transparent overlays
+    // when the user swipes (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE), so
+    // they never inset the picture. Portrait keeps the bars visible so
+    // the notched strip above the video stays a solid reserved band.
+    fun hideSystemBars() {
+        val window = activity?.window ?: return
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    fun showSystemBars() {
+        val window = activity?.window ?: return
+        WindowCompat.getInsetsController(window, window.decorView)
+            .show(WindowInsetsCompat.Type.systemBars())
+    }
 
     fun enterFullscreen() {
         isFullscreen = true
+        hideSystemBars()
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
     }
 
     fun exitFullscreen() {
         isFullscreen = false
+        showSystemBars()
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
@@ -130,9 +167,9 @@ fun PlayerScreen(
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             // Leaving the screen mid-fullscreen must restore the system
-            // orientation even if fullscreen state was never toggled back
-            // by the user. (The system bars are never hidden anymore, so
-            // there is nothing to restore for them.)
+            // orientation and system bars even if fullscreen state was
+            // never toggled back by the user.
+            showSystemBars()
             exitFullscreen()
         }
     }
@@ -162,122 +199,127 @@ fun PlayerScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = when {
-                // Fullscreen: the video sits between the notch and the
-                // gesture bar. The system bars stay visible (they blend
-                // into the black background), so these insets are real
-                // and reliably reserve the notched strip.
-                isFullscreen -> Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                // PiP: the system already sizes the window to the video,
-                // don't inset it further.
-                inPip -> Modifier.fillMaxSize()
-                // Portrait: the 16:9 strip starts below the status bar /
-                // camera cutout. The controls are drawn inside this box,
-                // so they inherit the inset automatically.
-                else -> Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .aspectRatio(16f / 9f)
-            },
-            contentAlignment = Alignment.Center,
-        ) {
-            when (val state = playback) {
-                is PlaybackState.Idle, is PlaybackState.Loading -> CircularProgressIndicator()
-                is PlaybackState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
-                is PlaybackState.Playing -> {
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                useController = false
-                                setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                            }
-                        },
-                        update = { it.player = state.player },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-
-                    // Tap surface: single tap toggles controls, double tap
-                    // seeks ±10s like the YouTube app.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(state.player) {
-                                detectTapGestures(
-                                    onTap = { controlsVisible = !controlsVisible },
-                                    onDoubleTap = { offset ->
-                                        val seekBy = if (offset.x < size.width / 2f) -10_000L else 10_000L
-                                        state.player.seekTo(
-                                            (state.player.currentPosition + seekBy).coerceAtLeast(0),
-                                        )
-                                    },
-                                )
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = when {
+                    // Fullscreen: full-bleed like YouTube — no status-bar
+                    // or navigation-bar insets; the system bars are hidden
+                    // in this mode (see hideSystemBars above), so there is
+                    // no notch strip to reserve.
+                    isFullscreen -> Modifier.fillMaxSize()
+                    // PiP: the system already sizes the window to the video,
+                    // don't inset it further.
+                    inPip -> Modifier.fillMaxSize()
+                    // Portrait: the 16:9 strip starts below the status bar /
+                    // camera cutout. The controls are drawn inside this box,
+                    // so they inherit the inset automatically.
+                    else -> Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .aspectRatio(16f / 9f)
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                when (val state = playback) {
+                    is PlaybackState.Idle, is PlaybackState.Loading -> CircularProgressIndicator()
+                    is PlaybackState.Failed -> Text(state.message, color = MaterialTheme.colorScheme.error)
+                    is PlaybackState.Playing -> {
+                        AndroidView(
+                            factory = { ctx ->
+                                PlayerView(ctx).apply {
+                                    useController = false
+                                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                                }
                             },
-                    )
-
-                    if (controlsVisible) {
-                        PlayerControls(
-                            title = video.title,
-                            isPlaying = isPlaying,
-                            isFullscreen = isFullscreen,
-                            positionMs = positionMs,
-                            durationMs = durationMs,
-                            scrubPositionMs = scrubPositionMs,
-                            playbackSpeed = playbackSpeed,
-                            onOpenSpeedMenu = {
-                                controlsVisible = true
-                                showSpeedSheet = true
-                            },
-                            onScrub = { scrubPositionMs = it },
-                            onScrubFinished = {
-                                if (scrubPositionMs >= 0) state.player.seekTo(scrubPositionMs)
-                                scrubPositionMs = -1L
-                            },
-                            onPlayPause = manager::playPause,
-                            onSeekBy = manager::seekBy,
-                            onBack = onBack,
-                            onToggleFullscreen = {
-                                if (isFullscreen) exitFullscreen() else enterFullscreen()
-                            },
-                        )
-                    }
-
-                    if (showSpeedSheet) {
-                        SpeedSheet(
-                            currentSpeed = playbackSpeed,
-                            isLandscape = isFullscreen,
-                            onSpeedSelected = { speed ->
-                                playbackSpeed = speed
-                                manager.setPlaybackSpeed(speed)
-                                showSpeedSheet = false
-                            },
-                            onDismiss = { showSpeedSheet = false },
+                            update = { it.player = state.player },
                             modifier = Modifier.fillMaxSize(),
                         )
+
+                        // Tap surface: single tap toggles controls, double tap
+                        // seeks ±10s like the YouTube app.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(state.player) {
+                                    detectTapGestures(
+                                        onTap = { controlsVisible = !controlsVisible },
+                                        onDoubleTap = { offset ->
+                                            val seekBy = if (offset.x < size.width / 2f) -10_000L else 10_000L
+                                            state.player.seekTo(
+                                                (state.player.currentPosition + seekBy).coerceAtLeast(0),
+                                            )
+                                        },
+                                    )
+                                },
+                        )
+
+                        if (controlsVisible) {
+                            PlayerControls(
+                                title = video.title,
+                                isPlaying = isPlaying,
+                                isFullscreen = isFullscreen,
+                                positionMs = positionMs,
+                                durationMs = durationMs,
+                                scrubPositionMs = scrubPositionMs,
+                                playbackSpeed = playbackSpeed,
+                                onOpenSpeedMenu = {
+                                    controlsVisible = true
+                                    showSpeedSheet = true
+                                },
+                                onScrub = { scrubPositionMs = it },
+                                onScrubFinished = {
+                                    if (scrubPositionMs >= 0) state.player.seekTo(scrubPositionMs)
+                                    scrubPositionMs = -1L
+                                },
+                                onPlayPause = manager::playPause,
+                                onSeekBy = manager::seekBy,
+                                onBack = onBack,
+                                onToggleFullscreen = {
+                                    if (isFullscreen) exitFullscreen() else enterFullscreen()
+                                },
+                            )
+                        }
                     }
+                }
+            }
+
+            if (!isFullscreen && !inPip) {
+                Text(
+                    text = video.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp),
+                )
+                // Collapsible description, YouTube watch-page style — only
+                // when the scan found a description sidecar for this video.
+                // Suppressed in fullscreen/PiP together with the title.
+                video.description?.let { description ->
+                    VideoDescription(
+                        description = description,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    )
                 }
             }
         }
 
-        if (!isFullscreen && !inPip) {
-            Text(
-                text = video.title,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(16.dp),
+        // The speed sheet is rendered here, OUTSIDE the 16:9 strip and the
+        // title column: portrait docks it as a full-width bottom sheet on
+        // the screen and fullscreen centers it over the surface (see
+        // [SpeedSheet]). Living inside the strip is what used to cram it
+        // into the strip's corner and cut it off.
+        if (showSpeedSheet && playback is PlaybackState.Playing) {
+            SpeedSheet(
+                currentSpeed = playbackSpeed,
+                isLandscape = isFullscreen,
+                onSpeedSelected = { speed ->
+                    playbackSpeed = speed
+                    manager.setPlaybackSpeed(speed)
+                    // Live preview like YouTube: the sheet stays open so
+                    // the speed can be auditioned; the scrim tap dismisses.
+                },
+                onDismiss = { showSpeedSheet = false },
+                modifier = Modifier.fillMaxSize(),
             )
-            // Collapsible description, YouTube watch-page style — only
-            // when the scan found a description sidecar for this video.
-            // Suppressed in fullscreen/PiP together with the title.
-            video.description?.let { description ->
-                VideoDescription(
-                    description = description,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                )
-            }
         }
     }
 }
@@ -323,9 +365,11 @@ private fun PlayerControls(
                 modifier = Modifier
                     .fillMaxWidth()
                     // Keep the back/title/gear row clear of the status bar /
-                    // camera cutout. The video box above already applies (and
-                    // consumes) this inset, so in practice this is a no-op
-                    // safeguard for wherever the controls get hosted.
+                    // camera cutout. In portrait the video box above already
+                    // applies (and consumes) this inset, so this is a no-op
+                    // safeguard; in immersive fullscreen the bars are hidden
+                    // and the padding is zero, letting the row hug the true
+                    // top edge like YouTube's.
                     .statusBarsPadding()
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -405,11 +449,13 @@ private fun PlayerControls(
                         listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)),
                     ),
                 )
-                // In fullscreen the video box above already reserves the
-                // navigation-bar inset, so this is a no-op safeguard; in
-                // portrait the video sits at the top of the screen, where
-                // the navigation-bar inset must NOT push the timeline up
-                // and detach it from the video's bottom edge.
+                // In fullscreen the bars are hidden (immersive), so this
+                // padding is zero and the row sits on the true bottom edge;
+                // swiping them back in overlays them on the video without
+                // insetting it. In portrait the video sits at the top of
+                // the screen, where the navigation-bar inset must NOT push
+                // the timeline up and detach it from the video's bottom
+                // edge.
                 .then(if (isFullscreen) Modifier.navigationBarsPadding() else Modifier),
         ) {
             Spacer(modifier = Modifier.weight(1f))

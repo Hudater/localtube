@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Upload
@@ -89,12 +90,20 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val allSources by viewModel.sources.collectAsState()
     var videoToDelete by remember { mutableStateOf<Video?>(null) }
-    var searchActive by remember { mutableStateOf(false) }
+    var searchToggled by remember { mutableStateOf(false) }
 
-    // Collapsing search (back arrow or system back) always resets the
-    // query so the feed comes back unfiltered.
+    // The expanded/collapsed search state is DERIVED, never stored: the
+    // query lives in the ViewModel and survives Home leaving composition
+    // (expand, type, open a video, press back). An independent remember
+    // flag would collapse the bar while the filter kept running — the
+    // "icon + hidden filter" bug. Expanded iff the magnifier toggled it
+    // OR a live query exists.
+    val searchActive = searchToggled || uiState.query.isNotEmpty()
+
+    // Collapsing search (back arrow, clear X, or system back) always
+    // resets the query so the feed comes back unfiltered.
     fun collapseSearch() {
-        searchActive = false
+        searchToggled = false
         viewModel.clearQuery()
     }
     BackHandler(enabled = searchActive) { collapseSearch() }
@@ -127,7 +136,8 @@ fun HomeScreen(
                     allSources = allSources,
                     selectionState = selectionState,
                     onOpenSettings = onOpenSettings,
-                    onOpenSearch = { searchActive = true },
+                    onOpenSearch = { searchToggled = true },
+                    onImportSources = viewModel::importSources,
                 )
             }
 
@@ -163,16 +173,21 @@ fun HomeScreen(
                     ),
                 ) {
                     items(uiState.videos, key = { it.id.value }) { video ->
+                        // Feed rows show the channel avatar + name like
+                        // YouTube; a video whose channel isn't in the
+                        // loaded list just renders without the byline and
+                        // without the channel link.
+                        val feedChannel = video.channelId?.let { id ->
+                            uiState.channels.firstOrNull { it.id == id }
+                        }
                         VideoCard(
                             video = video,
-                            // Feed rows show the channel avatar + name like
-                            // YouTube; a video whose channel isn't in the
-                            // loaded list just renders without the byline.
-                            channel = video.channelId?.let { id ->
-                                uiState.channels.firstOrNull { it.id == id }
-                            },
+                            channel = feedChannel,
                             onClick = { onVideoClick(video) },
                             onLongClick = { videoToDelete = video },
+                            onChannelClick = feedChannel?.let { channel ->
+                                { onChannelClick(channel) }
+                            },
                         )
                     }
                 }
@@ -202,7 +217,7 @@ fun HomeScreen(
  * Replaces the app-name slot from the UI reference with a multi-select
  * source dropdown; the right side carries the YouTube-style search and
  * settings-gear buttons. [allSources] (hidden included) backs the gear
- * menu's source export.
+ * menu's source export/import.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -212,6 +227,7 @@ private fun TopBar(
     selectionState: SelectionState,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit,
+    onImportSources: (String) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val selectedIds by selectionState.selectedSourceIds.collectAsState()
@@ -268,6 +284,7 @@ private fun TopBar(
             SettingsMenuButton(
                 sources = allSources,
                 onOpenSettings = onOpenSettings,
+                onImportSources = onImportSources,
             )
         },
     )
@@ -277,12 +294,14 @@ private fun TopBar(
  * The settings gear, grouped right of the search icon like YouTube's top
  * bar. Opens a menu with source management plus an export that writes
  * every configured source (label/type/path + SMB connection details, but
- * NEVER the stored password) as JSON to a user-picked document.
+ * NEVER the stored password) as JSON to a user-picked document, and an
+ * import that reads a previously exported file back in.
  */
 @Composable
 private fun SettingsMenuButton(
     sources: List<Source>,
     onOpenSettings: () -> Unit,
+    onImportSources: (String) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -290,6 +309,11 @@ private fun SettingsMenuButton(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
         if (uri != null) exportSources(context, uri, sources)
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) readImportedSources(context, uri, onImportSources)
     }
 
     Box {
@@ -311,6 +335,23 @@ private fun SettingsMenuButton(
                 onClick = {
                     menuExpanded = false
                     exportLauncher.launch("localtube-sources.json")
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Import sources…") },
+                leadingIcon = { Icon(Icons.Filled.Download, contentDescription = null) },
+                onClick = {
+                    menuExpanded = false
+                    // Filters are best-effort: providers ignore unknown
+                    // types, so the plain-text fallbacks keep exported
+                    // files pickable even when SAF misreports them.
+                    importLauncher.launch(
+                        arrayOf(
+                            "application/json",
+                            "text/plain",
+                            "application/octet-stream",
+                        ),
+                    )
                 },
             )
         }
@@ -352,9 +393,34 @@ private fun exportSources(context: Context, uri: Uri, sources: List<Source>) {
 }
 
 /**
+ * Streams the user-picked document into memory and hands the JSON text
+ * to [onImport] (HomeViewModel.importSources owns the parsing, dedupe
+ * and inserts). A read or decode failure toasts instead of crashing
+ * mid-import, mirroring [exportSources].
+ */
+private fun readImportedSources(context: Context, uri: Uri, onImport: (String) -> Unit) {
+    try {
+        val json = context.contentResolver.openInputStream(uri)?.use { stream ->
+            stream.readBytes().toString(Charsets.UTF_8)
+        }
+        if (json != null) {
+            onImport(json)
+        } else {
+            Toast.makeText(context, "Import failed", Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        Log.e("LocalTubeImport", "Reading imported sources failed", e)
+        Toast.makeText(context, "Import failed", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/**
  * YouTube-style inline search: a rounded dark pill replacing the top
  * bar, with a back arrow to collapse, a leading magnifier and a
- * trailing clear button. Focused on expand so typing starts right away.
+ * trailing clear button. Both the arrow and the X route through
+ * [onCollapse] — the single reset path that clears the ViewModel query
+ * AND untoggles the bar, keeping the expanded state and the live filter
+ * in sync. Focused on expand so typing starts right away.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -386,7 +452,7 @@ private fun SearchBar(
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotEmpty()) {
-                    IconButton(onClick = { onQueryChange("") }) {
+                    IconButton(onClick = onCollapse) {
                         Icon(Icons.Filled.Close, contentDescription = "Clear search")
                     }
                 }

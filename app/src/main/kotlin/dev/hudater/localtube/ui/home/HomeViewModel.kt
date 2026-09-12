@@ -2,6 +2,7 @@ package dev.hudater.localtube.ui.home
 
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -9,7 +10,9 @@ import dev.hudater.localtube.core.data.repository.LibraryRepository
 import dev.hudater.localtube.core.data.repository.SourceRepository
 import dev.hudater.localtube.core.filesystem.SourceFileSystem
 import dev.hudater.localtube.core.model.Channel
+import dev.hudater.localtube.core.model.SmbConnectionInfo
 import dev.hudater.localtube.core.model.Source
+import dev.hudater.localtube.core.model.SourceId
 import dev.hudater.localtube.core.model.SourceType
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.ui.SelectionState
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 
 data class HomeUiState(
     val visibleSources: List<Source> = emptyList(),
@@ -124,6 +128,83 @@ class HomeViewModel(
         return videos.filter { video ->
             video.title.contains(needle, ignoreCase = true) || video.channelId in matchingChannelIds
         }
+    }
+
+    /**
+     * Imports sources from a JSON array in the gear-menu export format
+     * (label/type/path plus optional SMB details). Entries whose
+     * type+path pair is already configured are skipped; the SMB password
+     * is never part of the export, so imported SMB sources start without
+     * stored credentials — the user re-enters the password once. Malformed
+     * JSON toasts "Import failed" instead of crashing.
+     */
+    fun importSources(json: String) {
+        val toImport = try {
+            parseImportedSources(json, sources.value)
+        } catch (e: Exception) {
+            Log.e("LocalTubeImport", "Parsing imported sources failed", e)
+            Toast.makeText(appContext, "Import failed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (toImport.isEmpty()) {
+            Toast.makeText(appContext, "Nothing to import", Toast.LENGTH_SHORT).show()
+            return
+        }
+        viewModelScope.launch {
+            var imported = 0
+            toImport.forEach { source ->
+                try {
+                    sourceRepository.addSource(source)
+                    imported++
+                } catch (e: Exception) {
+                    Log.e("LocalTubeImport", "Adding source '${source.label}' failed", e)
+                }
+            }
+            // Same as the Settings screen's add flows: kick a scan so the
+            // imported sources' videos actually show up in the feed.
+            ScanScheduler.scanNow(appContext)
+            Toast.makeText(appContext, "Imported $imported source(s)", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Parses the format produced by HomeScreen's exportSources; throws on
+     * malformed JSON so [importSources] can reject the whole file.
+     * Duplicates (already configured, or repeated inside the file) are
+     * dropped here rather than mid-insert.
+     */
+    private fun parseImportedSources(json: String, existing: List<Source>): List<Source> {
+        val array = JSONArray(json)
+        val seenKeys = existing.map { it.type to it.path }.toMutableSet()
+        val parsed = mutableListOf<Source>()
+        for (i in 0 until array.length()) {
+            val entry = array.getJSONObject(i)
+            val type = SourceType.valueOf(entry.getString("type"))
+            val path = entry.getString("path")
+            val key = type to path
+            if (key in seenKeys) continue
+            seenKeys.add(key)
+            parsed.add(
+                Source(
+                    id = SourceId(0), // replaced by Room on insert
+                    type = type,
+                    path = path,
+                    label = entry.optString("label"),
+                    smbConnectionInfo = entry.optJSONObject("smb")?.let { smb ->
+                        SmbConnectionInfo(
+                            host = smb.getString("host"),
+                            shareName = smb.getString("shareName"),
+                            remotePath = smb.getString("remotePath"),
+                            username = smb.optString("username").ifEmpty { null },
+                            // The password is never exported, so an
+                            // imported source starts credential-less.
+                            hasStoredCredentials = false,
+                        )
+                    },
+                ),
+            )
+        }
+        return parsed
     }
 
     /**

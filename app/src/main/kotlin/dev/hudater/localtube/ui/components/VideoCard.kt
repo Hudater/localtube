@@ -41,6 +41,11 @@ private val MetadataGray = Color(0xFFAAAAAA)
  * [onLongClick] stays optional so screens without a destructive
  * long-press action (channel, playlist) simply omit it.
  *
+ * [onChannelClick] is optional too: when set, the avatar and the channel
+ * byline become their own link to the channel (a no-op long click keeps
+ * the row's delete long-press from firing through it). Screens without a
+ * channel to navigate to omit it.
+ *
  * [channel] is null when the caller has no channel context — the avatar
  * and byline are dropped instead of leaving an empty gap.
  */
@@ -52,6 +57,7 @@ fun VideoCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    onChannelClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -84,7 +90,11 @@ fun VideoCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (channel != null) {
-                ChannelAvatar(name = channel.name, iconPath = channel.iconPath)
+                ChannelAvatar(
+                    name = channel.name,
+                    iconPath = channel.iconPath,
+                    onClick = onChannelClick,
+                )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -101,7 +111,17 @@ fun VideoCard(
                         color = MetadataGray,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
+                        modifier = Modifier
+                            // Separate from the row's click so tapping the
+                            // byline opens the channel, not the video.
+                            .then(
+                                if (onChannelClick != null) {
+                                    Modifier.combinedClickable(onClick = onChannelClick, onLongClick = {})
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(top = 2.dp),
                     )
                 }
             }
@@ -115,15 +135,25 @@ fun VideoCard(
  * are cached files, not source-relative, so they load through Coil's
  * normal file handling rather than the localtube:// fetcher), otherwise
  * a primary-colored circle with the channel's first letter — the same
- * fallback style as the Home screen's avatar strip.
+ * fallback style as the Home screen's avatar strip. [onClick] makes the
+ * avatar a channel link (applied after the clip so the ripple stays
+ * inside the circle); null keeps it inert.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChannelAvatar(name: String, iconPath: String?) {
+private fun ChannelAvatar(name: String, iconPath: String?, onClick: (() -> Unit)? = null) {
     Box(
         modifier = Modifier
             .size(36.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary),
+            .background(MaterialTheme.colorScheme.primary)
+            .then(
+                if (onClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = {})
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (iconPath != null) {
