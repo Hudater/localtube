@@ -148,6 +148,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # The workflow runs on a branch ref, not a tag ref, so the
+          # action can't infer the tag from GITHUB_REF — pass it
+          # explicitly from the meta job's detection.
+          tag_name: ${{ needs.meta.outputs.tag }}
           name: ${{ needs.meta.outputs.tag }}
           generate_release_notes: true
           files: ${{ steps.apk.outputs.apk }}
