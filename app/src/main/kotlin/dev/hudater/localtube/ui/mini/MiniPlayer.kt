@@ -43,6 +43,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.animation.core.Animatable
@@ -77,7 +78,7 @@ fun MiniPlayerOverlay(
     val scope = rememberCoroutineScope()
     val dragX = remember { Animatable(0f) }
     var dragY by remember { mutableStateOf(0f) }
-    var containerSize by remember { mutableStateOf(android.util.Size(1, 1)) }
+    var containerSize by remember { mutableStateOf(IntSize(1, 1)) }
 
     var isPlaying by remember { mutableStateOf(true) }
     LaunchedEffect(playing) {
