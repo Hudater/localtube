@@ -14,12 +14,12 @@ tasks.register("clean", Delete::class) {
     delete(rootProject.layout.buildDirectory)
 }
 
-// Pin the whole Compose dependency graph to one consistent set
-// (material3 1.2.1 + the rest of Compose at 1.5.4). Mixed Compose versions
-// fail dexing with "Duplicate class" because classes moved between
-// artifacts across versions (e.g. ExperimentalComposeUiApi: ui 1.5.4 vs
-// ui-util 1.7.0). eachDependency by group covers artifacts a per-artifact
-// force() list would miss.
+// Pin the whole Compose dependency graph to one consistent set:
+// material3 1.2.1 + the rest of Compose at 1.6.1. material3 1.2.1 was
+// compiled against compose-ui 1.6.x (its TextStyle.copy signature differs
+// from 1.5.x — pinning ui to 1.5.4 caused a NoSuchMethodError at runtime
+// in TypographyTokens). eachDependency by group covers artifacts a
+// per-artifact force() list would miss.
 subprojects {
     configurations.all {
         resolutionStrategy.eachDependency {
@@ -31,7 +31,7 @@ subprojects {
                     requested.group == "androidx.compose.runtime" ||
                     requested.group == "androidx.compose.animation" ||
                     requested.group == "androidx.compose.material" ->
-                    useVersion("1.5.4")
+                    useVersion("1.6.1")
             }
         }
     }
