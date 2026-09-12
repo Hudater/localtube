@@ -83,6 +83,18 @@ class LocalSourceFileSystem(
         DocumentFile.fromTreeUri(appContext, treeUri)?.exists() == true
     }
 
+    override suspend fun deleteFile(source: Source, relativePath: String): Unit =
+        withContext(Dispatchers.IO) {
+            val documentUri = try {
+                resolveDocumentUri(source, relativePath)
+            } catch (e: FileNotFoundException) {
+                return@withContext // already gone — treat as deleted
+            }
+            if (!android.provider.DocumentsContract.deleteDocument(appContext.contentResolver, documentUri)) {
+                throw java.io.IOException("Provider refused to delete $relativePath under ${source.label}")
+            }
+        }
+
     /**
      * Walks [relativePath] segment by segment under the source's tree URI
      * to find the matching DocumentFile, then returns its document URI.

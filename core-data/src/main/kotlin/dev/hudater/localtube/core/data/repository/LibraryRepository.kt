@@ -38,6 +38,9 @@ interface LibraryRepository {
     fun observePlaylistVideos(playlistId: PlaylistId): Flow<List<Video>>
 
     suspend fun getVideo(videoId: dev.hudater.localtube.core.model.VideoId): Video?
+
+    /** Removes one video's row (after its file(s) were deleted on disk). */
+    suspend fun deleteVideo(videoId: dev.hudater.localtube.core.model.VideoId)
 }
 
 class RoomLibraryRepository(
@@ -74,4 +77,8 @@ class RoomLibraryRepository(
 
     override suspend fun getVideo(videoId: dev.hudater.localtube.core.model.VideoId): Video? =
         videoDao.getById(videoId.value)?.toDomain()
+
+    override suspend fun deleteVideo(videoId: dev.hudater.localtube.core.model.VideoId) {
+        videoDao.deleteByIds(listOf(videoId.value))
+    }
 }

@@ -1,13 +1,16 @@
 package dev.hudater.localtube.ui.home
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.hudater.localtube.core.data.repository.LibraryRepository
 import dev.hudater.localtube.core.data.repository.SourceRepository
+import dev.hudater.localtube.core.filesystem.SourceFileSystem
 import dev.hudater.localtube.core.model.Channel
 import dev.hudater.localtube.core.model.Source
+import dev.hudater.localtube.core.model.SourceType
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.ui.SelectionState
 import dev.hudater.localtube.work.ScanScheduler
@@ -32,6 +35,7 @@ class HomeViewModel(
     private val sourceRepository: SourceRepository,
     private val libraryRepository: LibraryRepository,
     private val selectionState: SelectionState,
+    private val fileSystemsByType: Map<SourceType, SourceFileSystem>,
 ) : ViewModel() {
 
     private val isRefreshing = MutableStateFlow(false)
@@ -50,6 +54,14 @@ class HomeViewModel(
                 libraryRepository.observeChannels(effectiveSourceIds),
                 libraryRepository.observeFeed(effectiveSourceIds, selectedChannelId),
             ) { channels, videos ->
+                // Diagnostic: a DB with rows + an empty feed shows up here
+                // as videos=0, narrowing "scan didn't write" vs "UI can't
+                // read" in one logcat line.
+                Log.d(
+                    "LocalTubeFeed",
+                    "sourceIds=${effectiveSourceIds.map { it.value }} channelId=${selectedChannelId?.value} " +
+                        "channels=${channels.size} videos=${videos.size}",
+                )
                 HomeUiState(
                     visibleSources = visibleSources,
                     channels = channels,
@@ -72,14 +84,47 @@ class HomeViewModel(
         }
     }
 
+    /**
+     * Deletes the video file and its sidecars (thumbnail, .info.json) on
+     * disk, then removes the row. The DB row is only removed when every
+     * file delete succeeded, so a half-failed delete stays visible and
+     * retryable. The next scan reconciles regardless: gone file → row
+     * removed as stale.
+     */
+    fun deleteVideo(video: Video) {
+        viewModelScope.launch {
+            val source = sourceRepository.getSource(video.sourceId) ?: return@launch
+            val fileSystem = fileSystemsByType[source.type] ?: return@launch
+            val filesToDelete = buildList {
+                add(video.filePath)
+                video.thumbnailPath?.let(::add)
+                add(video.filePath.substringBeforeLast('.') + ".info.json")
+            }.distinct()
+
+            var allDeleted = true
+            for (path in filesToDelete) {
+                try {
+                    fileSystem.deleteFile(source, path)
+                } catch (e: Exception) {
+                    allDeleted = false
+                    Log.e("LocalTubeScan", "Delete failed: '$path' on '${source.label}'", e)
+                }
+            }
+            if (allDeleted) {
+                libraryRepository.deleteVideo(video.id)
+            }
+        }
+    }
+
     class Factory(
         private val appContext: Context,
         private val sourceRepository: SourceRepository,
         private val libraryRepository: LibraryRepository,
         private val selectionState: SelectionState,
+        private val fileSystemsByType: Map<SourceType, SourceFileSystem>,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            HomeViewModel(appContext, sourceRepository, libraryRepository, selectionState) as T
+            HomeViewModel(appContext, sourceRepository, libraryRepository, selectionState, fileSystemsByType) as T
     }
 }

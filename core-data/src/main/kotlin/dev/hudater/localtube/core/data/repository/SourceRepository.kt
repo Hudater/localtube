@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.map
 interface SourceRepository {
     fun observeAllSources(): Flow<List<Source>>
     fun observeVisibleSources(): Flow<List<Source>>
+    suspend fun getSource(id: dev.hudater.localtube.core.model.SourceId): Source?
     suspend fun addSource(source: Source): Source
     suspend fun updateSource(source: Source)
     suspend fun removeSource(source: Source)
@@ -30,6 +31,9 @@ class RoomSourceRepository(
 
     override fun observeVisibleSources(): Flow<List<Source>> =
         sourceDao.observeVisible().map { list -> list.map { it.toDomain() } }
+
+    override suspend fun getSource(id: dev.hudater.localtube.core.model.SourceId): Source? =
+        sourceDao.getById(id.value)?.toDomain()
 
     override suspend fun addSource(source: Source): Source {
         val newId = sourceDao.upsert(source.toEntity())

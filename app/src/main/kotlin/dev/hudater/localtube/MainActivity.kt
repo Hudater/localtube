@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                                 container.sourceRepository,
                                 container.libraryRepository,
                                 selectionState,
+                                container.fileSystemsByType,
                             )
                         )
                         HomeScreen(

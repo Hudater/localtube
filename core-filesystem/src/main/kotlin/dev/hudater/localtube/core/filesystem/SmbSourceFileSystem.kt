@@ -124,6 +124,24 @@ class SmbSourceFileSystem(
         }
     }
 
+    override suspend fun deleteFile(source: Source, relativePath: String): Unit =
+        withContext(Dispatchers.IO) {
+            withShare(source) { share ->
+                val info = requireSmbInfo(source)
+                val remotePath = toRemotePath(info, relativePath)
+                val file = share.openFile(
+                    remotePath,
+                    EnumSet.of(AccessMask.DELETE),
+                    null,
+                    SMB2ShareAccess.ALL,
+                    SMB2CreateDisposition.FILE_OPEN,
+                    null,
+                )
+                file.deleteOnClose()
+                file.close()
+            }
+        }
+
     private fun <T> withShare(source: Source, block: (DiskShare) -> T): T {
         val info = requireSmbInfo(source)
         client.connect(info.host).use { connection ->

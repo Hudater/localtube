@@ -1,13 +1,16 @@
 package dev.hudater.localtube.ui.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -25,6 +29,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -55,30 +60,58 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var videoToDelete by remember { mutableStateOf<Video?>(null) }
 
-    Column {
-        TopBar(
-            visibleSources = uiState.visibleSources,
-            selectionState = selectionState,
-            onOpenSettings = onOpenSettings,
-        )
+    // PullToRefreshBox wraps the WHOLE screen so a swipe anywhere below
+    // the system bar triggers refresh — previously the top bar and avatar
+    // strip sat outside it and swallowed gestures near the top.
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = viewModel::onRefresh,
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TopBar(
+                visibleSources = uiState.visibleSources,
+                selectionState = selectionState,
+                onOpenSettings = onOpenSettings,
+            )
 
-        ChannelAvatarStrip(
-            channels = uiState.channels,
-            selectionState = selectionState,
-            onChannelClick = onChannelClick,
-        )
+            ChannelAvatarStrip(
+                channels = uiState.channels,
+                selectionState = selectionState,
+                onChannelClick = onChannelClick,
+            )
 
-        PullToRefreshBox(
-            isRefreshing = uiState.isRefreshing,
-            onRefresh = viewModel::onRefresh,
-        ) {
-            LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(bottom = 16.dp),
+            ) {
                 items(uiState.videos, key = { it.id.value }) { video ->
-                    VideoRow(video = video, onClick = { onVideoClick(video) })
+                    VideoRow(
+                        video = video,
+                        onClick = { onVideoClick(video) },
+                        onLongClick = { videoToDelete = video },
+                    )
                 }
             }
         }
+    }
+
+    videoToDelete?.let { video ->
+        AlertDialog(
+            onDismissRequest = { videoToDelete = null },
+            title = { Text("Delete video?") },
+            text = { Text("This permanently deletes \"${video.title}\" and its files from the source folder.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    videoToDelete = null
+                    viewModel.deleteVideo(video)
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { videoToDelete = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -217,9 +250,18 @@ private fun ChannelAvatar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun VideoRow(video: Video, onClick: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+private fun VideoRow(
+    video: Video,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
         Box {
             AsyncImage(
                 model = resolveThumbnailModel(video.sourceId, video.thumbnailPath),

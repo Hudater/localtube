@@ -52,9 +52,11 @@ fun SettingsScreen(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri: Uri? ->
         if (uri != null) {
+            // Persist BOTH read and write so deleting video files later
+            // doesn't hit SecurityException on a read-only grant.
             context.contentResolver.takePersistableUriPermission(
                 uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
             viewModel.addLocalSource(uri.toString(), label = uri.lastPathSegment ?: "Local folder")
         }

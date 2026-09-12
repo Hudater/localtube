@@ -62,6 +62,14 @@ interface SourceFileSystem {
 
     /** Quick reachability check, used to show the "source unavailable" state. */
     suspend fun isReachable(source: Source): Boolean
+
+    /**
+     * Deletes one file from [source]. A file that is already missing is
+     * treated as deleted (no error). Requires the source's grant to
+     * include write access — picked folders must be persisted with both
+     * READ and WRITE flags (see SettingsScreen's folder picker).
+     */
+    suspend fun deleteFile(source: Source, relativePath: String)
 }
 
 /**
