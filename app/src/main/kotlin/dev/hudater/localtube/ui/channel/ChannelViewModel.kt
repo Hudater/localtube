@@ -11,6 +11,7 @@ import dev.hudater.localtube.core.model.Playlist
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.ui.SelectionState
 import dev.hudater.localtube.ui.resolveThumbnailModel
+import dev.hudater.localtube.ui.model.PlaylistSummary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,17 +25,10 @@ import kotlinx.coroutines.flow.stateIn
 enum class ChannelTab { VIDEOS, PLAYLISTS }
 
 /**
- * One Playlists-tab row: the playlist plus the preview bits derived
- * from its videos (video count + first-video thumbnail). The playlist
- * model itself carries neither, so they're computed here at observe
- * time rather than widening the core model for a UI concern.
+ * Backs the channel page opened from tapping an avatar. Scoped to
+ * whichever sources are currently selected (see [SelectionState]) plus
+ * this one fixed [channelId] — see docs/ARCHITECTURE.md, "Channel page".
  */
-data class PlaylistSummary(
-    val playlist: Playlist,
-    val videoCount: Int,
-    val previewThumbnailModel: Any?,
-)
-
 data class ChannelUiState(
     val channelName: String = "",
     val selectedTab: ChannelTab = ChannelTab.VIDEOS,

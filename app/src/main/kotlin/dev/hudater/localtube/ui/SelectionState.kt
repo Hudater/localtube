@@ -1,6 +1,7 @@
 package dev.hudater.localtube.ui
 
 import dev.hudater.localtube.core.model.ChannelId
+import dev.hudater.localtube.core.model.PlaylistId
 import dev.hudater.localtube.core.model.Source
 import dev.hudater.localtube.core.model.SourceId
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,9 @@ class SelectionState {
     private val _selectedChannelId = MutableStateFlow<ChannelId?>(null)
     val selectedChannelId: StateFlow<ChannelId?> = _selectedChannelId.asStateFlow()
 
+    private val _selectedPlaylistId = MutableStateFlow<PlaylistId?>(null)
+    val selectedPlaylistId: StateFlow<PlaylistId?> = _selectedPlaylistId.asStateFlow()
+
     fun isAllSelected(): Boolean = _selectedSourceIds.value.isEmpty()
 
     fun selectAll() {
@@ -37,6 +41,10 @@ class SelectionState {
 
     fun selectChannel(channelId: ChannelId?) {
         _selectedChannelId.value = channelId
+    }
+
+    fun selectPlaylist(playlistId: PlaylistId?) {
+        _selectedPlaylistId.value = playlistId
     }
 
     /**

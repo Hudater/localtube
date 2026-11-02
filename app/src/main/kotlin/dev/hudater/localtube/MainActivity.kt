@@ -25,6 +25,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.hudater.localtube.core.model.ChannelId
 import dev.hudater.localtube.core.model.PlaylistId
+import dev.hudater.localtube.core.model.Playlist
+import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.playback.PipState
 import dev.hudater.localtube.playback.PlaybackState
 import dev.hudater.localtube.ui.SelectionState
@@ -36,6 +38,8 @@ import dev.hudater.localtube.ui.mini.MiniPlayerOverlay
 import dev.hudater.localtube.ui.player.PlayerScreen
 import dev.hudater.localtube.ui.playlist.PlaylistScreen
 import dev.hudater.localtube.ui.playlist.PlaylistViewModel
+import dev.hudater.localtube.ui.playlist.PlaylistHomeScreen
+import dev.hudater.localtube.ui.playlist.PlaylistHomeViewModel
 import dev.hudater.localtube.ui.settings.SettingsScreen
 import dev.hudater.localtube.ui.settings.SettingsViewModel
 import dev.hudater.localtube.ui.theme.LocalTubeTheme
@@ -183,6 +187,25 @@ class MainActivity : ComponentActivity() {
                                 videoLookup[video.id.value] = video
                                 navController.navigate("player/${video.id.value}")
                             },
+                            onPlaylistClick = { playlist ->
+                                navController.navigate("playlist/${playlist.id.value}/${playlist.name}")
+                            },
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+
+                    composable(
+                        "playlist-home",
+                    ) {
+                        val viewModel: PlaylistHomeViewModel = viewModel(
+                            factory = PlaylistHomeViewModel.Factory(
+                                sourceRepository = container.sourceRepository,
+                                libraryRepository = container.libraryRepository,
+                                selectionState = selectionState,
+                            )
+                        )
+                        PlaylistHomeScreen(
+                            viewModel = viewModel,
                             onPlaylistClick = { playlist ->
                                 navController.navigate("playlist/${playlist.id.value}/${playlist.name}")
                             },

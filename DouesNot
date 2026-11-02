@@ -1,0 +1,30 @@
+
+
+FAILURE: FAILURE: Build failed with an exception.Build failed with an exception.
+
+
+
+* What went wrong:
+* What went wrong:
+Task 'exist' not found in root project 'LocalTube' and its subprojects.Task 'exist' not found in root project 'LocalTube' and its subprojects.
+
+
+
+* Try:
+* Try:
+> > Run Run gradlew tasksgradlew tasks to get a list of available tasks.
+ to get a list of available tasks.
+> > For more on name expansion, please refer to https://docs.gradle.org/8.9/userguide/command_line_interface.html#sec:name_abbreviation in the Gradle documentation.
+For more on name expansion, please refer to https://docs.gradle.org/8.9/userguide/command_line_interface.html#sec:name_abbreviation in the Gradle documentation.
+> > Run with Run with --stacktrace--stacktrace option to get the stack trace.
+ option to get the stack trace.
+> > Run with Run with --info--info or  or --debug--debug option to get more log output.
+ option to get more log output.
+> > Run with Run with --scan--scan to get full insights.
+ to get full insights.
+> > Get more help at Get more help at https://help.gradle.orghttps://help.gradle.org..
+
+
+
+BUILD FAILEDBUILD FAILED in 538ms in 538ms
+

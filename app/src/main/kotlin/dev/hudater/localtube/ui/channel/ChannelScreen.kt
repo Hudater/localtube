@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import dev.hudater.localtube.core.model.Playlist
 import dev.hudater.localtube.core.model.Video
+import dev.hudater.localtube.ui.components.PlaylistCard
 import dev.hudater.localtube.ui.components.VideoCard
 
 /** YouTube's muted gray for playlist metadata and placeholder art. */
@@ -106,62 +107,6 @@ fun ChannelScreen(
                     PlaylistCard(summary = summary, onClick = { onPlaylistClick(summary.playlist) })
                 }
             }
-        }
-    }
-}
-
-/**
- * YouTube-style playlist card for the Playlists tab: a square-ish 100dp
- * thumbnail (the first video's thumbnail, falling back to the
- * playlist's own captured thumbnail, then a gray placeholder) with the
- * playlist name + video count beside it.
- */
-@Composable
-private fun PlaylistCard(summary: PlaylistSummary, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(100.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(PlaylistPlaceholderGray),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (summary.previewThumbnailModel != null) {
-                AsyncImage(
-                    model = summary.previewThumbnailModel,
-                    contentDescription = summary.playlist.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    Icons.AutoMirrored.Filled.PlaylistPlay,
-                    contentDescription = null,
-                    tint = PlaylistMetadataGray,
-                )
-            }
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = summary.playlist.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = playlistCountLabel(summary.videoCount),
-                style = MaterialTheme.typography.bodyMedium,
-                color = PlaylistMetadataGray,
-                modifier = Modifier.padding(top = 2.dp),
-            )
         }
     }
 }
