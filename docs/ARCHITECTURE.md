@@ -75,6 +75,39 @@ content but identical size+mtime (rare, but possible if someone
 manually touches files) won't be detected as changed. Acceptable for
 this use case.
 
+### Sidecar fingerprinting
+
+The same size+mtime logic extends to the sidecars (.info.json,
+.description, thumbnail): each row carries the fingerprints of the
+sidecars as of the last scan that READ them. A sidecar whose fingerprint
+matches is never re-read — its effect (identity, title, channel,
+description, duration, thumbnail path) is already on the row, carried
+forward. This is load-bearing: at SAF/FUSE round-trip speeds (~1
+read/sec) re-reading every sidecar of a large library per scan was ~35
+minutes of invisible work and made repeated pull-to-refresh scans restart
+forever. Three rules follow:
+
+1. An unchanged library costs ZERO file reads and ZERO row writes per
+   scan.
+2. A re-downloaded video file with unchanged sidecars keeps its row
+   identity and display fields (the sidecar's previous row is the
+   source of truth); only file fingerprints change.
+3. Rows written before this schema get one full re-read to acquire
+   fingerprints, then skip again.
+
+### Scan failure vs empty folder
+
+"listFiles returned zero entries" and "listFiles threw" are OPPOSITE
+meanings, and the distinction is load-bearing. An empty listing means
+the folder genuinely is empty → ScanEngine deletes known rows (a real
+delete). A throw (revoked SAF grant, unreachable SMB share) aborts the
+source's scan BEFORE any diffing and records the error on the source row
+(`SourceEntity.lastScanError`, shown in Home and Settings) — it must
+NEVER fall through to the "empty folder" path, because the whole
+library would be deleted over a transient permission problem (this
+happened once). ScanWorker also enqueues with `KEEP` (never `REPLACE`)
+so repeated refreshes never cancel an in-flight walk of a large library.
+
 ### Home feed ordering
 
 Deliberately `ORDER BY RANDOM()` (see `VideoDao.observeFeed`), not

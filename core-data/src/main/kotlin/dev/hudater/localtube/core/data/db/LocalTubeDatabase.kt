@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         PlaylistEntity::class,
         VideoEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class LocalTubeDatabase : RoomDatabase() {

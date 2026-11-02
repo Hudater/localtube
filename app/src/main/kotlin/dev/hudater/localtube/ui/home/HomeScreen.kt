@@ -147,6 +147,35 @@ fun HomeScreen(
                 onChannelClick = onChannelClick,
             )
 
+            // Scan status lives right under the avatar strip, where the
+            // user is already looking: live counter while a scan runs
+            // (first scans of big folders take minutes — without this
+            // line they look exactly like "nothing is happening"),
+            // failure text when a source couldn't be read. Both stay
+            // invisible while everything is fine.
+            if (uiState.scanProgress != null || uiState.scanErrorText != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 4.dp),
+                ) {
+                    uiState.scanProgress?.let { progress ->
+                        Text(
+                            text = progress.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    uiState.scanErrorText?.let { errorText ->
+                        Text(
+                            text = errorText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+
             if (uiState.query.isNotEmpty() && uiState.videos.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxWidth().weight(1f),

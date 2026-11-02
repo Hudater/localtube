@@ -20,6 +20,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -130,7 +131,16 @@ private fun SourceRow(
     ListItem(
         headlineContent = { Text(source.label) },
         supportingContent = {
-            Text(if (source.type == SourceType.SMB) "SMB — ${source.smbConnectionInfo?.host}" else "Local folder")
+            Column {
+                Text(if (source.type == SourceType.SMB) "SMB — ${source.smbConnectionInfo?.host}" else "Local folder")
+                source.lastScanError?.let { error ->
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
         },
         trailingContent = {
             Row {

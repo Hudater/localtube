@@ -19,6 +19,8 @@ data class Source(
     val path: String,
     val label: String,
     val hidden: Boolean = false,
+    /** Non-null ⇔ the last scan of this source failed (null = all clear) — recorded by ScanWorker, not persisted by user action. */
+    val lastScanError: String? = null,
     val smbConnectionInfo: SmbConnectionInfo? = null,
 )
 

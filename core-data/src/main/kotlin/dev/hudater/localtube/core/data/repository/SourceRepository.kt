@@ -20,6 +20,12 @@ interface SourceRepository {
     suspend fun updateSource(source: Source)
     suspend fun removeSource(source: Source)
     suspend fun setHidden(source: Source, hidden: Boolean)
+
+    /**
+     * Records/clears the per-source scan failure surfaced in the UI.
+     * Null ⇔ the source's last scan completed.
+     */
+    suspend fun setScanError(id: dev.hudater.localtube.core.model.SourceId, error: String?)
 }
 
 class RoomSourceRepository(
@@ -50,5 +56,11 @@ class RoomSourceRepository(
 
     override suspend fun setHidden(source: Source, hidden: Boolean) {
         sourceDao.update(source.toEntity().copy(hidden = hidden))
+    }
+
+    override suspend fun setScanError(id: dev.hudater.localtube.core.model.SourceId, error: String?) {
+        // Targeted column update: never races a concurrent hidden/label
+        // edit into a full-row overwrite.
+        sourceDao.updateScanError(id.value, error)
     }
 }

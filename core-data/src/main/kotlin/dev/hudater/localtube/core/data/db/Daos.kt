@@ -27,6 +27,13 @@ interface SourceDao {
 
     @Delete
     suspend fun delete(source: SourceEntity)
+
+    /**
+     * ScanOutcome bookkeeping without a full-row UPDATE: a failed source
+     * shows its error in the UI; a successful scan clears it.
+     */
+    @Query("UPDATE sources SET lastScanError = :error WHERE id = :id")
+    suspend fun updateScanError(id: Long, error: String?)
 }
 
 @Dao
@@ -96,7 +103,20 @@ interface VideoDao {
     @Query("DELETE FROM videos WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
 
-    @Query("SELECT id, fileSizeBytes, fileLastModifiedEpochMillis, addedAtEpochMillis, title, channelId, playlistId, playlistIndex, description FROM videos WHERE sourceId = :sourceId")
+    /**
+     * Path + fingerprints + every carried display field — everything
+     * the scan engine needs to maintain a row without re-reading its
+     * sidecars (see docs/ARCHITECTURE.md, "Sidecar fingerprinting").
+     */
+    @Query("""
+        SELECT id, file_path AS filePath, fileSizeBytes, fileLastModifiedEpochMillis,
+               addedAtEpochMillis, title, channelId, playlistId, playlistIndex, description,
+               durationSeconds, thumbnailPath,
+               infoJsonSizeBytes, infoJsonLastModifiedEpochMillis,
+               descriptionSizeBytes, descriptionLastModifiedEpochMillis,
+               thumbnailSizeBytes, thumbnailLastModifiedEpochMillis
+        FROM videos WHERE sourceId = :sourceId
+        """)
     suspend fun getKnownFileFingerprints(sourceId: Long): List<VideoFingerprint>
 
     @Query("SELECT * FROM videos WHERE thumbnailPath IS NULL")
@@ -148,14 +168,14 @@ interface VideoDao {
 }
 
 /**
- * Cheap per-row identity used by the scan engine's diff pass. Display
- * and playlist fields ride along so ScanEngine's every-scan re-derivation
- * (title/channel heuristics, directory-as-playlist membership and
- * ordering, sidecar descriptions) can rewrite rows whose file bytes
- * never changed.
+ * Cheap per-row identity used by the scan engine's diff pass. Carries
+ * the file path and both sidecar fingerprints so unchanged files resolve
+ * identity and display fields from this row alone — zero file-content
+ * reads on scans that find nothing changed.
  */
 data class VideoFingerprint(
     val id: String,
+    val filePath: String,
     val fileSizeBytes: Long,
     val fileLastModifiedEpochMillis: Long,
     val addedAtEpochMillis: Long,
@@ -164,4 +184,12 @@ data class VideoFingerprint(
     val playlistId: String?,
     val playlistIndex: Int?,
     val description: String?,
+    val durationSeconds: Long?,
+    val thumbnailPath: String?,
+    val infoJsonSizeBytes: Long?,
+    val infoJsonLastModifiedEpochMillis: Long?,
+    val descriptionSizeBytes: Long?,
+    val descriptionLastModifiedEpochMillis: Long?,
+    val thumbnailSizeBytes: Long?,
+    val thumbnailLastModifiedEpochMillis: Long?,
 )

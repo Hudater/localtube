@@ -22,6 +22,7 @@ fun SourceEntity.toDomain(): Source = Source(
     path = path,
     label = label,
     hidden = hidden,
+    lastScanError = lastScanError,
     smbConnectionInfo = if (type == SourceType.SMB.name) {
         SmbConnectionInfo(
             host = smbHost.orEmpty(),
@@ -39,6 +40,7 @@ fun Source.toEntity(): SourceEntity = SourceEntity(
     path = path,
     label = label,
     hidden = hidden,
+    lastScanError = lastScanError,
     smbHost = smbConnectionInfo?.host,
     smbShareName = smbConnectionInfo?.shareName,
     smbRemotePath = smbConnectionInfo?.remotePath,

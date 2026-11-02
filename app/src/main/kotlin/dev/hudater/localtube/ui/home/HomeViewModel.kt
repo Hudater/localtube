@@ -6,14 +6,18 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.work.Data
+import androidx.work.WorkManager
 import dev.hudater.localtube.core.data.repository.LibraryRepository
 import dev.hudater.localtube.core.data.repository.SourceRepository
+import dev.hudater.localtube.core.data.scan.ScanWorker
 import dev.hudater.localtube.core.filesystem.SourceFileSystem
 import dev.hudater.localtube.core.model.Channel
 import dev.hudater.localtube.core.model.SmbConnectionInfo
 import dev.hudater.localtube.core.model.Source
 import dev.hudater.localtube.core.model.SourceId
 import dev.hudater.localtube.core.model.SourceType
+import dev.hudater.localtube.core.model.ChannelId
 import dev.hudater.localtube.core.model.Video
 import dev.hudater.localtube.ui.SelectionState
 import dev.hudater.localtube.work.ScanScheduler
@@ -22,9 +26,13 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 
 data class HomeUiState(
@@ -32,9 +40,18 @@ data class HomeUiState(
     val channels: List<Channel> = emptyList(),
     val videos: List<Video> = emptyList(),
     val isRefreshing: Boolean = false,
+    /** Live scan counter while a scan resolves the library; null = idle. */
+    val scanProgress: ScanProgress? = null,
+    /** Friendly one-liner for any visible source whose last scan failed. */
+    val scanErrorText: String? = null,
     /** Live search text; empty means the feed is unfiltered. */
     val query: String = "",
 )
+
+/** Live scan resolution counter, from ScanWorker's setProgress. */
+data class ScanProgress(val done: Int, val total: Int) {
+    val label: String = "Scanning $done of $total…"
+}
 
 class HomeViewModel(
     private val appContext: Context,
@@ -45,6 +62,9 @@ class HomeViewModel(
 ) : ViewModel() {
 
     private val isRefreshing = MutableStateFlow(false)
+
+    /** Live scan counter while a scan is resolving the library. */
+    private val scanProgressFlow = MutableStateFlow<ScanProgress?>(null)
 
     /** Live search text for the home feed; empty string = unfiltered. */
     val query = MutableStateFlow("")
@@ -60,9 +80,10 @@ class HomeViewModel(
             selectionState.selectedSourceIds,
             selectionState.selectedChannelId,
             isRefreshing,
-        ) { visibleSources, _, selectedChannelId, refreshing ->
-            Triple(visibleSources, selectedChannelId, refreshing)
-        }.flatMapLatest { (visibleSources, selectedChannelId, refreshing) ->
+            scanProgressFlow,
+        ) { visibleSources, _, selectedChannelId, refreshing, progress ->
+            ScanSnapshot(visibleSources, selectedChannelId, refreshing, progress)
+        }.flatMapLatest { (visibleSources, selectedChannelId, refreshing, progress) ->
             val effectiveSourceIds = selectionState.effectiveSourceIds(visibleSources)
             combine(
                 libraryRepository.observeChannels(effectiveSourceIds),
@@ -83,22 +104,79 @@ class HomeViewModel(
                     channels = channels,
                     videos = filtered,
                     isRefreshing = refreshing,
+                    scanProgress = progress,
+                    scanErrorText = scanErrorLine(visibleSources),
                     query = activeQuery,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
+    /** One line per unreadable source; capped so a broken batch doesn't flood the feed. */
+    private fun scanErrorLine(visibleSources: List<Source>): String? {
+        val errored = visibleSources.filter { it.lastScanError != null }
+        if (errored.isEmpty()) return null
+        val shown = errored.take(ERROR_LINES_SHOWN)
+            .joinToString("\n") { "'${it.label}': ${it.lastScanError}" }
+        val overflow = errored.size - ERROR_LINES_SHOWN
+        return if (overflow > 0) "$shown\n(+$overflow more — see Sources)" else shown
+    }
+
+    private companion object {
+        const val ERROR_LINES_SHOWN = 2
+    }
+
+    /** Destructure-friendly carrier for the combine→flatMapLatest chain. */
+    private data class ScanSnapshot(
+        val visibleSources: List<Source>,
+        val selectedChannelId: ChannelId?,
+        val refreshing: Boolean,
+        val progress: ScanProgress?,
+    )
+
     fun onRefresh() {
         isRefreshing.value = true
+        // KEEP: an in-flight scan is never killed by a second refresh.
         ScanScheduler.scanNow(appContext)
-        // WorkManager scans asynchronously; we don't currently observe
-        // completion, so the refresh spinner is time-boxed rather than
-        // tied to work status — see docs/ARCHITECTURE.md open items for
-        // wiring WorkInfo observation if this feels too abrupt in practice.
         viewModelScope.launch {
-            kotlinx.coroutines.delay(1_500)
-            isRefreshing.value = false
+            val workManager = WorkManager.getInstance(appContext)
+            // Observe by unique name, NOT by the returned request id:
+            // under KEEP the actual running scan may be a pre-existing
+            // request this refresh queued behind. first() waits for the
+            // FIRST NON-EMPTY emission so a just-enqueued scan (whose
+            // registration is asynchronous) isn't missed; the timeout
+            // bounds the wait if the scan finished and deregistered in
+            // the gap — then there is nothing to watch.
+            val activeId = withTimeoutOrNull(3_000) {
+                workManager
+                    .getWorkInfosForUniqueWorkFlow(ScanScheduler.MANUAL_UNIQUE_WORK_NAME)
+                    .first { it.isNotEmpty() }
+                    .firstOrNull { !it.state.isFinished }?.id
+            }
+            if (activeId == null) {
+                // Scan already finished, never registered, or timed out —
+                // the feed state is whatever the last scan wrote.
+                isRefreshing.value = false
+                return@launch
+            }
+            workManager.getWorkInfoByIdFlow(activeId)
+                .onEach { info ->
+                    if (info.state.isFinished) {
+                        scanProgressFlow.value = null
+                        isRefreshing.value = false
+                    } else {
+                        info.progress.toScanProgress()?.let { scanProgressFlow.value = it }
+                    }
+                }
+                .transformWhile { emit(it); !it.state.isFinished }
+                .collect { }
         }
+    }
+
+    private fun Data.toScanProgress(): ScanProgress? {
+        val total = getInt(ScanWorker.KEY_TOTAL, -1)
+        if (total <= 0) return null
+        val done = getInt(ScanWorker.KEY_DONE, 0).coerceIn(0, total)
+        return ScanProgress(done, total)
     }
 
     /** Updates the live search text; the feed re-filters on every change. */

@@ -1,11 +1,19 @@
 package dev.hudater.localtube.core.filesystem
 
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import dev.hudater.localtube.core.model.Source
 import dev.hudater.localtube.core.model.SourceType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.FileInputStream
 import java.io.FileNotFoundException
@@ -16,6 +24,18 @@ import java.nio.ByteBuffer
  * [SourceFileSystem] for a [SourceType.LOCAL] source: a folder picked via
  * Storage Access Framework, addressed by [Source.path] (a SAF tree URI
  * string).
+ *
+ * The walk queries DocumentsContract directly — one content-resolver
+ * query per DIRECTORY carrying every child's name/size/mtime in its
+ * cursor — rather than through [DocumentFile], which issues separate
+ * provider round-trips per child per property (several times the file
+ * count per scan). For a few-thousand-file library that is the
+ * difference between a walk of seconds and one of minutes. Subtree walk
+ * is parallel (bounded).
+ *
+ * Unreadable/revoked sources throw [SourceUnavailableException]: an
+ * *empty* listing means the folder itself is genuinely empty, never
+ * that the permission was lost.
  */
 class LocalSourceFileSystem(
     private val appContext: Context,
@@ -27,42 +47,105 @@ class LocalSourceFileSystem(
                 "LocalSourceFileSystem given a non-LOCAL source: ${source.type}"
             }
             val treeUri = Uri.parse(source.path)
+            val treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+            // fromTreeUri is nearly free and catches a malformed tree URI;
+            // exists() forces one provider round-trip that fails exactly
+            // when the persisted grant was revoked — the "worked before,
+            // now gone" failure mode. Loud, not silent.
             val root = DocumentFile.fromTreeUri(appContext, treeUri)
-            if (root == null) {
-                // Empty (not an error) is a trap: a stale or revoked tree
-                // URI must be loud, or a broken source looks like an empty
-                // folder and the scan "succeeds" with zero rows.
-                android.util.Log.w("LocalTubeScan", "Tree URI not accessible for '${source.label}': ${source.path}")
-                return@withContext emptyList()
+            if (root == null || !root.exists()) {
+                throw SourceUnavailableException(
+                    "Folder not accessible for '${source.label}' — its SAF grant was " +
+                        "revoked or the folder moved. Re-select it in Sources.",
+                )
             }
-
-            buildList {
-                walk(root, relativePrefix = "") { entry -> add(entry) }
-            }
+            collectFiles(treeUri, treeDocumentId)
         }
 
-    private fun walk(
-        dir: DocumentFile,
-        relativePrefix: String,
-        onFile: (RemoteFileEntry) -> Unit,
-    ) {
-        for (child in dir.listFiles()) {
-            val name = child.name ?: continue
-            val relativePath = if (relativePrefix.isEmpty()) name else "$relativePrefix/$name"
-            if (child.isDirectory) {
-                walk(child, relativePath, onFile)
-            } else {
-                onFile(
-                    RemoteFileEntry(
-                        relativePath = relativePath,
-                        sizeBytes = child.length(),
-                        lastModifiedEpochMillis = child.lastModified(),
-                        kind = FileKindClassifier.classify(name),
-                    )
+    /**
+     * Recursively queries each directory's children in parallel. Each
+     * directory costs exactly ONE provider query whose cursor carries
+     * display name, size, last-modified, and the dir flag for every
+     * child at once.
+     */
+    private suspend fun collectFiles(treeUri: Uri, rootDocumentId: String): List<RemoteFileEntry> =
+        coroutineScope {
+            val io = Dispatchers.IO
+            val recursionPermits = Semaphore(6)
+            val collectMutex = Mutex()
+            val files = mutableListOf<RemoteFileEntry>()
+
+            suspend fun walkDir(documentId: String, prefix: String) {
+                for (child in queryChildren(treeUri, documentId)) {
+                    val relativePath = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
+                    if (child.isDirectory) {
+                        launch(io) {
+                            recursionPermits.withPermit {
+                                walkDir(child.documentId, relativePath)
+                            }
+                        }
+                    } else {
+                        collectMutex.withLock {
+                            files += RemoteFileEntry(
+                                relativePath = relativePath,
+                                sizeBytes = child.sizeBytes,
+                                lastModifiedEpochMillis = child.lastModifiedEpochMillis,
+                                kind = FileKindClassifier.classify(child.name),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // The picked folder is the root: list only its children.
+            recursionPermits.withPermit { walkDir(rootDocumentId, prefix = "") }
+            files
+        }
+
+    private data class SafChild(
+        val documentId: String,
+        val name: String,
+        val isDirectory: Boolean,
+        val sizeBytes: Long,
+        val lastModifiedEpochMillis: Long,
+    )
+
+    /** One cursor per directory: every child's metadata in a single round-trip. */
+    private fun queryChildren(treeUri: Uri, parentDocumentId: String): List<SafChild> {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            parentDocumentId,
+        )
+        val result = mutableListOf<SafChild>()
+        appContext.contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.stringOrNull(1) ?: continue // same fallback as DocumentFile.name
+                result += SafChild(
+                    documentId = cursor.getString(0),
+                    name = name,
+                    isDirectory = DocumentsContract.Document.MIME_TYPE_DIR == cursor.stringOrNull(2),
+                    sizeBytes = cursor.getLong(3),
+                    lastModifiedEpochMillis = cursor.getLong(4),
                 )
             }
         }
+        return result
     }
+
+    private fun Cursor.stringOrNull(column: Int): String? =
+        if (isNull(column)) null else getString(column)
 
     override suspend fun openInputStream(source: Source, relativePath: String): InputStream =
         withContext(Dispatchers.IO) {
@@ -90,7 +173,7 @@ class LocalSourceFileSystem(
             } catch (e: FileNotFoundException) {
                 return@withContext // already gone — treat as deleted
             }
-            if (!android.provider.DocumentsContract.deleteDocument(appContext.contentResolver, documentUri)) {
+            if (!DocumentsContract.deleteDocument(appContext.contentResolver, documentUri)) {
                 throw java.io.IOException("Provider refused to delete $relativePath under ${source.label}")
             }
         }

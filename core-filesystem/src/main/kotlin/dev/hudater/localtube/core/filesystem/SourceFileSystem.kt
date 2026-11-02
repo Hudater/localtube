@@ -25,6 +25,21 @@ enum class FileKind {
 }
 
 /**
+ * Thrown by [SourceFileSystem.listFiles] when the source cannot be read
+ * AT ALL — a revoked SAF grant, an unreachable SMB share, a permission
+ * error mid-walk.
+ *
+ * Distinct from "listed fine and returned zero files", which means the
+ * folder genuinely is empty and the scan engine should treat everything
+ * in its store as deleted. The distinction is load-bearing: treating
+ * "cannot list" as "empty folder" made one revoked permission wipe the
+ * entire library from the DB (see docs/ARCHITECTURE.md, "Scan failure
+ * vs empty folder").
+ */
+class SourceUnavailableException(message: String, cause: Throwable? = null) :
+    Exception(message, cause)
+
+/**
  * Abstraction over "list what's in this source" and "open a stream to
  * read one file from it", implemented once per [dev.hudater.localtube.core.model.SourceType].
  *
